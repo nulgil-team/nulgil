@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>늘길 프로토타입</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="room" id="room">
+  <div class="phone-wrap" id="phoneWrap"><div class="phone" id="phone" aria-label="휴대폰 화면"></div></div>
+  <div class="bezel" id="bezel">
+    <div class="screen" id="screen" data-theme="night" data-layout="full">
+      <aside class="driving" id="driving" aria-hidden="true"></aside>
+      <header class="status" id="status" aria-hidden="true"></header>
+      <div class="windows">
+        <div class="navwin" id="navwin" aria-hidden="true"></div>
+        <main class="app" id="app"></main>
+      </div>
+      <footer class="gnb" id="gnb" aria-hidden="true"></footer>
+      <div class="car-off" id="carOff" hidden><button type="button" id="boardBtn">차에 타기 (시연)</button></div>
+    </div>
+  </div>
+  <button class="panel-tab" id="panelTab" type="button">시연 설정</button>
+  <aside class="panel" id="panel" aria-label="시연 설정"></aside>
+</div>
+<script src="data/core-snapshot.js"></script>
+<script src="data/map-data.js"></script>
+<script src="data/demo-qr.js"></script>
+<script src="app.js"></script>
+<script type="module" src="connect.js"></script>
+</body>
+</html>

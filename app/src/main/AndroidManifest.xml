@@ -1,0 +1,18 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-feature android:name="android.hardware.type.automotive" android:required="true" />
+    <uses-permission android:name="pleos.car.permission.NAVI_ROUTE" />
+    <uses-permission android:name="pleos.car.permission.NAVI_ROUTE_SEARCH" />
+    <uses-permission android:name="android.car.permission.CAR_POWERTRAIN" />
+    <uses-permission android:name="android.car.permission.CAR_SPEED" />
+    <application android:name=".RoutineApplication" android:label="늘길 · 프로토타입" android:allowBackup="false"
+        android:theme="@style/RoutineTheme">
+        <!-- The Pleos emulator image has no android.car shared library; PublicParkedGuard treats missing car classes as not parked. -->
+        <uses-library android:name="android.car" android:required="false" />
+        <activity android:name=".RoutineActivity" android:exported="true" android:resizeableActivity="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

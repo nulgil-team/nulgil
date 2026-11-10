@@ -1,0 +1,19 @@
+plugins { id 'com.android.application' version '8.7.3' }
+android {
+    namespace 'kr.routine.app'
+    compileSdk 35
+    useLibrary 'android.car'
+    defaultConfig {
+        applicationId 'kr.routine.app'
+        minSdk 34
+        targetSdk 34
+        versionCode 2
+        versionName '0.2-backend'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    sourceSets.main.java.srcDir '../core/src/main/java'
+}
+dependencies { implementation 'ai.pleos.playground:NaviHelper:3.0.5' }

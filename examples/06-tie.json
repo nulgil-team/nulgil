@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1.0",
+  "mode": "DEMO",
+  "context": {
+    "now": 1793746800000,
+    "zoneId": "Asia/Seoul",
+    "localDate": "2026-11-04",
+    "day": 3,
+    "minute": 480
+  },
+  "destinations": [
+    {
+      "id": "36khp2hdj2cfcm5nqhe3",
+      "name": "소프트웨어드림센터",
+      "address": "경기도 성남시 수정구 창업로40번길 6",
+      "latitude": 37.41275833,
+      "longitude": 127.09481944,
+      "subId": "0"
+    },
+    {
+      "id": "36khp37hh8gqcm5nqhe5",
+      "name": "강남 거래처",
+      "address": "서울시 강남구 남부순환로 2621",
+      "latitude": 37.48544722,
+      "longitude": 127.03636666,
+      "subId": "0"
+    }
+  ],
+  "preference": "COMFORTABLE",
+  "collectionEnabled": true,
+  "counts": {
+    "rules": 1,
+    "selections": 6,
+    "estimates": 6,
+    "navigationRequests": 3
+  },
+  "recommendation": {
+    "status": "UNAVAILABLE",
+    "source": "NONE",
+    "destination": null,
+    "reason": "이 시간대의 목적지 후보가 비슷합니다. 직접 골라 주세요.",
+    "samples": 3,
+    "holdType": "TIE",
+    "candidates": [
+      {
+        "destination": {
+          "id": "36khp2hdj2cfcm5nqhe3",
+          "name": "소프트웨어드림센터",
+          "address": "경기도 성남시 수정구 창업로40번길 6",
+          "latitude": 37.41275833,
+          "longitude": 127.09481944,
+          "subId": "0"
+        },
+        "samples": 3
+      },
+      {
+        "destination": {
+          "id": "36khp37hh8gqcm5nqhe5",
+          "name": "강남 거래처",
+          "address": "서울시 강남구 남부순환로 2621",
+          "latitude": 37.48544722,
+          "longitude": 127.03636666,
+          "subId": "0"
+        },
+        "samples": 3
+      }
+    ]
+  },
+  "traffic": {
+    "status": "NOT_REQUESTED",
+    "estimateMinutes": null,
+    "baselineMinutes": null,
+    "delayMinutes": null,
+    "important": false,
+    "observedAt": null,
+    "basis": null,
+    "source": "DEMO",
+    "message": "목적지를 고른 뒤 모의 교통 정보를 조회해 주세요.",
+    "kind": "NOT_REQUESTED",
+    "history": []
+  },
+  "navigation": {
+    "state": "IDLE",
+    "code": "NAVIGATION_IDLE",
+    "canConfirm": false,
+    "message": "목적지를 먼저 선택하세요.",
+    "activeRoute": "INACTIVE"
+  },
+  "vehicle": {
+    "state": "PARKED",
+    "source": "DEMO"
+  },
+  "capabilities": {
+    "liveNavigation": false,
+    "mapGeometry": false,
+    "etaPerPreference": false
+  },
+  "notice": null
+}

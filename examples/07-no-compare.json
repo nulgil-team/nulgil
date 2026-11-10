@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "1.0",
+  "mode": "DEMO",
+  "context": {
+    "now": 1793746800000,
+    "zoneId": "Asia/Seoul",
+    "localDate": "2026-11-04",
+    "day": 3,
+    "minute": 480
+  },
+  "destinations": [
+    {
+      "id": "36khp2hdj2cfcm5nqhe3",
+      "name": "소프트웨어드림센터",
+      "address": "경기도 성남시 수정구 창업로40번길 6",
+      "latitude": 37.41275833,
+      "longitude": 127.09481944,
+      "subId": "0"
+    },
+    {
+      "id": "36khp37hh8gqcm5nqhe5",
+      "name": "강남 거래처",
+      "address": "서울시 강남구 남부순환로 2621",
+      "latitude": 37.48544722,
+      "longitude": 127.03636666,
+      "subId": "0"
+    }
+  ],
+  "preference": "COMFORTABLE",
+  "collectionEnabled": true,
+  "counts": {
+    "rules": 1,
+    "selections": 3,
+    "estimates": 2,
+    "navigationRequests": 3
+  },
+  "recommendation": {
+    "status": "READY",
+    "source": "HISTORY",
+    "destination": {
+      "id": "36khp2hdj2cfcm5nqhe3",
+      "name": "소프트웨어드림센터",
+      "address": "경기도 성남시 수정구 창업로40번길 6",
+      "latitude": 37.41275833,
+      "longitude": 127.09481944,
+      "subId": "0"
+    },
+    "reason": "최근 6주 중 같은 요일·시간대에 3일 선택한 장소입니다.",
+    "samples": 3,
+    "holdType": "NONE",
+    "candidates": []
+  },
+  "traffic": {
+    "status": "BASELINE_UNAVAILABLE",
+    "estimateMinutes": 28,
+    "baselineMinutes": null,
+    "delayMinutes": null,
+    "important": false,
+    "observedAt": 1793746800000,
+    "basis": "DEMO_ESTIMATE_DEFAULT",
+    "source": "DEMO",
+    "message": "모의 예상 28분. 비교 가능한 과거 예상 시간 3일분이 아직 없습니다.",
+    "kind": "NO_COMPARE",
+    "history": [
+      {
+        "localDate": "2026-10-28",
+        "minutes": 28
+      },
+      {
+        "localDate": "2026-10-21",
+        "minutes": 29
+      }
+    ]
+  },
+  "navigation": {
+    "state": "READY",
+    "code": "NAVIGATION_READY",
+    "canConfirm": true,
+    "message": "소프트웨어드림센터 · 확인하면 안내를 요청합니다.",
+    "activeRoute": "INACTIVE"
+  },
+  "vehicle": {
+    "state": "PARKED",
+    "source": "DEMO"
+  },
+  "capabilities": {
+    "liveNavigation": false,
+    "mapGeometry": false,
+    "etaPerPreference": false
+  },
+  "notice": null
+}

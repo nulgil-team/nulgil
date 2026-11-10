@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "1.0",
+  "mode": "DEMO",
+  "context": {
+    "now": 1793746800000,
+    "zoneId": "Asia/Seoul",
+    "localDate": "2026-11-04",
+    "day": 3,
+    "minute": 480
+  },
+  "destinations": [
+    {
+      "id": "36khp2hdj2cfcm5nqhe3",
+      "name": "소프트웨어드림센터",
+      "address": "경기도 성남시 수정구 창업로40번길 6",
+      "latitude": 37.41275833,
+      "longitude": 127.09481944,
+      "subId": "0"
+    },
+    {
+      "id": "36khp37hh8gqcm5nqhe5",
+      "name": "강남 거래처",
+      "address": "서울시 강남구 남부순환로 2621",
+      "latitude": 37.48544722,
+      "longitude": 127.03636666,
+      "subId": "0"
+    }
+  ],
+  "preference": "COMFORTABLE",
+  "collectionEnabled": true,
+  "counts": {
+    "rules": 1,
+    "selections": 3,
+    "estimates": 3,
+    "navigationRequests": 3
+  },
+  "recommendation": {
+    "status": "READY",
+    "source": "MANUAL",
+    "destination": {
+      "id": "36khp2hdj2cfcm5nqhe3",
+      "name": "소프트웨어드림센터",
+      "address": "경기도 성남시 수정구 창업로40번길 6",
+      "latitude": 37.41275833,
+      "longitude": 127.09481944,
+      "subId": "0"
+    },
+    "reason": "직접 선택한 목적지입니다.",
+    "samples": null,
+    "holdType": "NONE",
+    "candidates": []
+  },
+  "traffic": {
+    "status": "STALE_OR_INVALID",
+    "estimateMinutes": null,
+    "baselineMinutes": null,
+    "delayMinutes": null,
+    "important": false,
+    "observedAt": 1793746679999,
+    "basis": "DEMO_ESTIMATE_DEFAULT",
+    "source": "DEMO",
+    "message": "교통 정보의 시각을 확인할 수 없거나 오래됐습니다. 다시 조회해 주세요.",
+    "kind": "STALE",
+    "history": []
+  },
+  "navigation": {
+    "state": "READY",
+    "code": "NAVIGATION_READY",
+    "canConfirm": true,
+    "message": "소프트웨어드림센터 · 확인하면 안내를 요청합니다.",
+    "activeRoute": "INACTIVE"
+  },
+  "vehicle": {
+    "state": "PARKED",
+    "source": "DEMO"
+  },
+  "capabilities": {
+    "liveNavigation": false,
+    "mapGeometry": false,
+    "etaPerPreference": false
+  },
+  "notice": null
+}

@@ -1,0 +1,9 @@
+<resources>
+    <!-- Views supply both palettes explicitly. Disable platform Force Dark recoloring. -->
+    <style name="RoutineTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:forceDarkAllowed">false</item>
+        <item name="android:windowBackground">@color/routine_window</item>
+        <item name="android:colorAccent">#0b5cb5</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+</resources>

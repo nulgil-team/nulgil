@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "1.0",
+  "mode": "DEMO",
+  "context": {
+    "now": 1793746800000,
+    "zoneId": "Asia/Seoul",
+    "localDate": "2026-11-04",
+    "day": 3,
+    "minute": 480
+  },
+  "destinations": [
+    {
+      "id": "36khp2hdj2cfcm5nqhe3",
+      "name": "소프트웨어드림센터",
+      "address": "경기도 성남시 수정구 창업로40번길 6",
+      "latitude": 37.41275833,
+      "longitude": 127.09481944,
+      "subId": "0"
+    },
+    {
+      "id": "36khp37hh8gqcm5nqhe5",
+      "name": "강남 거래처",
+      "address": "서울시 강남구 남부순환로 2621",
+      "latitude": 37.48544722,
+      "longitude": 127.03636666,
+      "subId": "0"
+    }
+  ],
+  "preference": "COMFORTABLE",
+  "collectionEnabled": true,
+  "counts": {
+    "rules": 1,
+    "selections": 3,
+    "estimates": 3,
+    "navigationRequests": 3
+  },
+  "recommendation": {
+    "status": "READY",
+    "source": "MANUAL",
+    "destination": {
+      "id": "36khp2hdj2cfcm5nqhe3",
+      "name": "소프트웨어드림센터",
+      "address": "경기도 성남시 수정구 창업로40번길 6",
+      "latitude": 37.41275833,
+      "longitude": 127.09481944,
+      "subId": "0"
+    },
+    "reason": "직접 선택한 목적지입니다.",
+    "samples": null,
+    "holdType": "NONE",
+    "candidates": []
+  },
+  "traffic": {
+    "status": "AVAILABLE",
+    "estimateMinutes": 44,
+    "baselineMinutes": 29,
+    "delayMinutes": 15,
+    "important": true,
+    "observedAt": 1793746800000,
+    "basis": "DEMO_ESTIMATE_DEFAULT",
+    "source": "DEMO",
+    "message": "모의 예상 44분. 과거 예상 시간 중앙값보다 15분 더 걸릴 것으로 예상됩니다. 출발 전 교통 상황을 확인해 주세요.",
+    "kind": "LATE",
+    "history": [
+      {
+        "localDate": "2026-10-28",
+        "minutes": 28
+      },
+      {
+        "localDate": "2026-10-21",
+        "minutes": 29
+      },
+      {
+        "localDate": "2026-10-14",
+        "minutes": 30
+      }
+    ]
+  },
+  "navigation": {
+    "state": "READY",
+    "code": "NAVIGATION_READY",
+    "canConfirm": true,
+    "message": "소프트웨어드림센터 · 확인하면 안내를 요청합니다.",
+    "activeRoute": "INACTIVE"
+  },
+  "vehicle": {
+    "state": "PARKED",
+    "source": "DEMO"
+  },
+  "capabilities": {
+    "liveNavigation": false,
+    "mapGeometry": false,
+    "etaPerPreference": false
+  },
+  "notice": null
+}

@@ -1,0 +1,13 @@
+.gradle/
+**/build/
+local.properties
+*.class
+*.log
+runs/
+**/runs/
+demo-data/
+**/connection.json
+.env
+.env.*
+*.jks
+*.keystore
