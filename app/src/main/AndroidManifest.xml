@@ -2,6 +2,8 @@
     <uses-feature android:name="android.hardware.type.automotive" android:required="true" />
     <uses-permission android:name="pleos.car.permission.NAVI_ROUTE" />
     <uses-permission android:name="pleos.car.permission.NAVI_ROUTE_SEARCH" />
+    <!-- requestNavigationScreen(): show the destination or the whole active route on the stock map. -->
+    <uses-permission android:name="pleos.car.permission.NAVI_CUSTOM_MAP" />
     <uses-permission android:name="android.car.permission.CAR_POWERTRAIN" />
     <uses-permission android:name="android.car.permission.CAR_SPEED" />
     <application android:name=".RoutineApplication" android:label="늘길 · 프로토타입" android:allowBackup="false"

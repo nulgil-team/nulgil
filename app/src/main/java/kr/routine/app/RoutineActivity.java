@@ -102,6 +102,7 @@ public final class RoutineActivity extends Activity implements VehicleScreen.Act
         }
     }
     @Override public void recommend() { if (session != null) session.recommend(false); }
+    @Override public void showNativeMap(boolean routeOverview) { if (session != null) session.showNativeMap(routeOverview); }
     @Override public void setConsent(boolean value) { if (session != null) session.setConsent(value); }
     @Override public void registerRoutine(Destination value, int day, int minute) {
         if (session != null) session.registerRoutine(value, day, minute);

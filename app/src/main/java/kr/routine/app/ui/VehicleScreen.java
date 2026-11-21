@@ -33,6 +33,8 @@ public final class VehicleScreen {
         void dismiss();
         void refresh();
         void recommend();
+        /** Stock map: destination before departure, whole active route when routeOverview is true. */
+        void showNativeMap(boolean routeOverview);
         void setConsent(boolean enabled);
         void registerRoutine(Destination destination,int day,int minute);
         void clearHistory();
@@ -175,6 +177,7 @@ public final class VehicleScreen {
         }
         if(state.activeRoute()==ActiveRoute.ACTIVE) {
             heading(body,"이미 안내 중이에요"); description(body,"현재 경로를 유지할게요. 안내 내용은 순정 내비에서 확인해 주세요.");
+            add(body,button("순정 지도에서 경로 전체 보기",true,state.canRefresh()&&!state.demo(),()->actions.showNativeMap(true)),32);
             refreshButton(body); return;
         }
         if(state.activeRoute()==ActiveRoute.UNAVAILABLE || !state.connected()) {
@@ -200,6 +203,7 @@ public final class VehicleScreen {
             add(summary,text("경로 요약",34,true,colors.text()),0);
             add(summary,text("현재 위치 → 목적지",34,false,colors.secondary()),20);
             add(summary,text("지도와 실제 경로는 순정 내비에서 확인해 주세요.",30,false,colors.secondary()),24);
+            add(summary,button("순정 지도에서 보기",false,state.canRefresh()&&!state.demo(),()->actions.showNativeMap(false)),24);
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,WRAP,.8f); lp.leftMargin=40; lead.addView(summary,lp);
         }
         // Route preference lives in settings only, matching the navi-style home of the web spec.
@@ -300,7 +304,10 @@ public final class VehicleScreen {
         add(body,text("현재 경로: "+switch(state.activeRoute()) {
             case ACTIVE -> "안내 중"; case INACTIVE -> "안내 중인 경로 없음"; case UNAVAILABLE -> "조회 불가";
         },34,false,colors.secondary()),24);
-        actionRow(page,button("안내 상태 다시 확인",false,state.canRefresh(),actions::refresh),null);
+        boolean overview=!state.demo() && (state.departureState()==DepartureController.State.VERIFIED || state.activeRoute()==ActiveRoute.ACTIVE);
+        actionRow(page,overview?button("순정 지도에서 경로 전체 보기",true,state.canRefresh(),()->actions.showNativeMap(true))
+            :button("안내 상태 다시 확인",false,state.canRefresh(),actions::refresh),
+            overview?button("안내 상태 다시 확인",false,state.canRefresh(),actions::refresh):null);
     }
     private void picker(LinearLayout body,boolean onboarding) {
         heading(body,onboarding?"평소 가는 곳을 골라 주세요":"어디로 갈까요?");

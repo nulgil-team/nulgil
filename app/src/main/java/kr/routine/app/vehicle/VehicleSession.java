@@ -120,6 +120,17 @@ public final class VehicleSession implements AutoCloseable {
         }, error -> { busy = false; notice = error; emit(); drainForeground(); }));
     }
 
+    /** Opens the stock map (destination, or the whole active route). Display only: no trip or route request. */
+    public void showNativeMap(boolean routeOverview) {
+        if (closed || working()) return;
+        if (demo) { notice = "시연 모드에서는 순정 지도를 열지 않아요."; emit(); return; }
+        if (!routeOverview && destination == null) { notice = "목적지를 먼저 골라 주세요."; emit(); return; }
+        gateway.showNativeMap(destination, routeOverview, new NaviGateway.Callback<>() {
+            @Override public void onSuccess(Void value) { notice = ""; emit(); }
+            @Override public void onFailure(String message) { notice = message; emit(); }
+        });
+    }
+
     public void selectDestination(Destination value) {
         if (!snapshot().canEdit()) return;
         Destination current = resolve(value);

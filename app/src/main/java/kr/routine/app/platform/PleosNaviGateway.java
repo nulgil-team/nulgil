@@ -4,9 +4,13 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import ai.pleos.playground.navi.constants.NaviErrorCode;
 import ai.pleos.playground.navi.constants.RouteOption;
 import ai.pleos.playground.navi.data.BookmarkInfo;
+import ai.pleos.playground.navi.data.CurrentLocationInfo;
+import ai.pleos.playground.navi.data.NavigationScreenRequest;
+import ai.pleos.playground.navi.data.RouteOverviewShowInfo;
 import ai.pleos.playground.navi.data.DestinationInfo;
 import ai.pleos.playground.navi.data.RecentDestinationInfo;
 import ai.pleos.playground.navi.data.RouteInfo;
@@ -29,6 +33,7 @@ import kotlin.Unit;
 
 /** Single-flight SDK adapter. No route cancellation, hidden APIs, automatic retry, or guessed ETA units. */
 public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListener {
+    private static final String TAG = "RoutineNavi";
     private enum Phase { IDLE, CONNECT, PLACES, ESTIMATE, QUERY_ROUTE, PRECHECK, ROUTING, READBACK, RECOVERY, CLOSED }
     private record PlaceMetadata(String provider, Double displayLatitude, Double displayLongitude) {}
     private final Context context;
@@ -40,7 +45,21 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
     private NaviHelper helper;
     private Phase phase = Phase.IDLE;
     private volatile long operation;
-    private boolean connected, poisoned, routeIssued;
+    private boolean connected, poisoned, routeIssued, routeStartSeen;
+    /** Stock navi pushes RouteStarted then RouteEnded (same ms) and no RoutingCompleted; let state settle before readback. */
+    private static final long ROUTE_SETTLE_MS = 1500;
+    private static final long ROUTE_TIMEOUT_MS = 30000;
+    private static final long ORIGIN_WAIT_MS = 1000;
+    private static final int ROUTE_OVERVIEW_MS = 10000;
+    private TripInfo tripValue;
+    private CurrentLocationInfo originValue;
+    private boolean originAnswered;
+    /**
+     * Pleos Connect 2.1.0 returns the destination snapped toward the road entrance. Measured on 2026-11-21:
+     * 29 m for a hotel, 192 m for a convention center. POI id and subId must still match exactly; the coordinate
+     * is only a same-place sanity check, so the tolerance has to cover large venues.
+     */
+    private static final double READBACK_COORD_TOLERANCE_M = 500.0;
     private Callback<Void> connectCallback;
     private Callback<List<Destination>> placesCallback;
     private Callback<Estimate> estimateCallback;
@@ -126,11 +145,15 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
         }
         estimateCallback = callback;
         target = destination;
+        tripValue = null; originValue = null; originAnswered = false;
         begin(Phase.ESTIMATE, 8000);
         try {
+            // The origin only groups comparable history; the trip is still reported if the location never arrives.
+            helper.getCurrentLocationInfo();
             // Static SDK constructor inspection: latitude, longitude, poiId, poiName, poiSubId.
+            // TripRequest.poiSubId is nullable in navi-data 3.0.4; send null for a POI without a sub-entrance.
             helper.requestTrip(new TripRequest(destination.latitude(), destination.longitude(),
-                destination.id(), destination.name(), destination.subId()));
+                destination.id(), destination.name(), destination.subId().isEmpty() ? null : destination.subId()));
         } catch (RuntimeException ex) { failSession("교통 정보 요청 실패: " + ex.getClass().getSimpleName()); }
     }
 
@@ -188,7 +211,9 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
             if (!persisted) { failSession("안내 요청 기록을 저장할 수 없어 발행을 보류했습니다."); return; }
         } catch (RuntimeException ex) { failSession("안내 요청 준비 실패: " + ex.getClass().getSimpleName()); return; }
         routeIssued = true;
-        phase = Phase.ROUTING;
+        routeStartSeen = false;
+        begin(Phase.ROUTING, ROUTE_TIMEOUT_MS);
+        Log.i(TAG, "route: requestRoute issued option=" + preference);
         try {
             helper.requestRoute(request);
         } catch (RuntimeException ex) {
@@ -216,26 +241,42 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
         knownPlaces.clear();
         ambiguousPlaces.clear();
         for (RecentDestinationInfo value : recent) {
-            if (value == null) continue;
-            remember(value.getPoiId(), value.getName(), value.getAddress(), value.getLatitude(), value.getLongitude(),
+            if (value == null) { Log.i(TAG, "place rejected: recent entry is null"); continue; }
+            remember("recent", value.getPoiId(), value.getName(), value.getAddress(), value.getLatitude(), value.getLongitude(),
                 value.getPoiSubId(), value.getPoiProvider(), value.getDisplayLatitude(), value.getDisplayLongitude());
         }
         for (BookmarkInfo value : bookmarks) {
-            if (value == null) continue;
-            remember(value.getPoiId(), value.getName(), value.getAddress(), value.getLatitude(), value.getLongitude(),
+            if (value == null) { Log.i(TAG, "place rejected: bookmark entry is null"); continue; }
+            remember("bookmark", value.getPoiId(), value.getName(), value.getAddress(), value.getLatitude(), value.getLongitude(),
                 value.getPoiSubId(), value.getPoiProvider(), value.getDisplayLatitude(), value.getDisplayLongitude());
         }
+        // Counts and rejection reasons only; place names and coordinates stay out of the log.
+        Log.i(TAG, "places: recent=" + recent.size() + " bookmarks=" + bookmarks.size()
+            + " accepted=" + knownPlaces.size() + " ambiguous=" + ambiguousPlaces.size());
         Callback<List<Destination>> callback = placesCallback;
         placesCallback = null; phase = Phase.IDLE;
         callback.onSuccess(new ArrayList<>(knownPlaces.keySet()));
     }
 
-    private void remember(String id, String name, String address, double latitude, double longitude,
+    private void remember(String source, String id, String name, String address, double latitude, double longitude,
                           String subId, String provider, Double displayLatitude, Double displayLongitude) {
-        if (id == null || name == null || address == null || subId == null || provider == null
+        if ((id == null || id.isBlank()) && (name == null || name.isBlank()) && latitude == 0.0 && longitude == 0.0) {
+            Log.i(TAG, "place skipped (" + source + "): empty slot");
+            return;
+        }
+        // Observed on Pleos Connect 2.1.0 (2026-11-21): bookmarks report poiSubId=null and poiProvider="".
+        // A POI without a sub-entrance is valid; RouteInfo requires a non-null subId, so absent becomes "".
+        if (subId == null) subId = "";
+        if (id == null || name == null || address == null || provider == null
             || address.isBlank() || (latitude == 0.0 && longitude == 0.0)
             || (displayLatitude != null && (!Double.isFinite(displayLatitude) || Math.abs(displayLatitude) > 90))
-            || (displayLongitude != null && (!Double.isFinite(displayLongitude) || Math.abs(displayLongitude) > 180))) return;
+            || (displayLongitude != null && (!Double.isFinite(displayLongitude) || Math.abs(displayLongitude) > 180))) {
+            Log.i(TAG, "place rejected (" + source + "): id=" + presence(id) + " name=" + presence(name)
+                + " address=" + presence(address) + " subId=" + presence(subId) + " provider=" + presence(provider)
+                + " zeroCoord=" + (latitude == 0.0 && longitude == 0.0)
+                + " displayLat=" + (displayLatitude == null ? "null" : "set") + " displayLon=" + (displayLongitude == null ? "null" : "set"));
+            return;
+        }
         try {
             Destination destination = new Destination(id, name, address, latitude, longitude, subId);
             if (ambiguousPlaces.contains(destination)) return;
@@ -251,20 +292,88 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
         } catch (IllegalArgumentException ignored) { /* Invalid SDK place is not an actionable candidate. */ }
     }
 
+    @Override public void onCurrentLocationInfo(CurrentLocationInfo value) {
+        deliver(() -> {
+            if (phase != Phase.ESTIMATE || originAnswered) return;
+            originAnswered = true; originValue = value;
+            if (tripValue != null) finishEstimate();
+        });
+    }
+
     @Override public void onTripInfo(TripInfo value) {
         deliver(() -> {
-            if (phase != Phase.ESTIMATE) return;
+            if (phase != Phase.ESTIMATE || tripValue != null) return;
             if (value == null) { failSession("순정에서 빈 예상 정보를 반환했습니다."); return; }
+            tripValue = value;
+            if (originAnswered) { finishEstimate(); return; }
+            long token = operation;
+            main.postDelayed(() -> {
+                if (token == operation && phase == Phase.ESTIMATE && !poisoned && tripValue != null) {
+                    originAnswered = true; finishEstimate();
+                }
+            }, ORIGIN_WAIT_MS);
+        });
+    }
+
+    private void finishEstimate() {
+        TripInfo value = tripValue;
+        CurrentLocationInfo origin = originValue;
+        tripValue = null; originValue = null;
+        {
             int segments = value.getSummary() == null || value.getSummary().getTrafficConditions() == null
                 ? 0 : value.getSummary().getTrafficConditions().size();
-            String detail = "SDK ETA 원시값 " + value.getEta() + " · 단위 미검증 / 교통 요약 " + segments
-                + "구간. 선택한 경로 옵션에 대한 예상 시간인지 아직 검증하지 않았습니다.";
-            Estimate result = new Estimate(target.id(), "PLEOS_ORIGIN_UNVERIFIED", "PLEOS_TRIP_RAW_UNVERIFIED", -1,
+            Log.i(TAG, "trip: rawEta=" + value.getEta() + " rawDistance=" + value.getDistance() + " receivedAtMs=" + System.currentTimeMillis()
+                + " trafficSegments=" + segments + " summary=" + (value.getSummary() == null ? "null" : value.getSummary().getClass().getSimpleName())
+                + " routePoints=" + (value.getSummary() == null || value.getSummary().getRoutePoints() == null ? "null"
+                    : value.getSummary().getRoutePoints().size() + routePointTypes(value.getSummary().getRoutePoints())));
+            // TripInfo.eta is seconds and distance meters: matched the stock guidance screen on 2026-11-21
+            // (2357 s ↔ 40분·22km, 2111 s ↔ 36분·13km). requestTrip takes no route option, so this is the
+            // stock default option. Without a known origin the time is shown but never compared with history.
+            int eta = value.getEta();
+            int minutes = eta > 0 ? Math.max(1, (int) Math.round(eta / 60.0)) : -1;
+            String originKey = originKey(origin);
+            String basis = originKey == null ? "PLEOS_TRIP_NO_ORIGIN" : "ETA_PLEOS_TRIP_DEFAULT_OPTION";
+            String detail = "순정 예상 " + eta + "초 · " + value.getDistance() + "m · 순정 기본 경로 기준 · 교통 " + segments + "구간"
+                + (originKey == null ? " · 출발 위치 미확인(평소 대비 비교 안 함)" : " · 출발 위치 약 1km 격자");
+            Log.i(TAG, "estimate: minutes=" + minutes + " basis=" + basis + " origin=" + (originKey == null ? "unknown" : "grid"));
+            Estimate result = new Estimate(target.id(), originKey == null ? "PLEOS_ORIGIN_UNKNOWN" : originKey, basis, minutes,
                 System.currentTimeMillis(), detail, false);
             Callback<Estimate> callback = estimateCallback;
             estimateCallback = null; phase = Phase.IDLE;
             callback.onSuccess(result);
-        });
+        }
+    }
+
+    /** About 1 km grid of the stock navi's current position. Stored only on this device. */
+    private static String originKey(CurrentLocationInfo origin) {
+        if (origin == null) return null;
+        double lat = origin.getLatitude(), lon = origin.getLongitude();
+        if (!Double.isFinite(lat) || !Double.isFinite(lon) || (lat == 0.0 && lon == 0.0)
+            || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+        return "GRID100_" + (long) Math.floor(lat * 100) + "_" + (long) Math.floor(lon * 100);
+    }
+
+    @Override public void showNativeMap(Destination destination, boolean routeOverview, Callback<Void> callback) {
+        requireMain();
+        if (unavailable(callback)) return;
+        if (!connected || helper == null) { callback.onFailure("순정 내비가 연결되지 않았습니다."); return; }
+        if (phase != Phase.IDLE) { callback.onFailure("이전 조회·요청이 끝날 때까지 기다리세요."); return; }
+        NavigationScreenRequest request;
+        if (routeOverview) {
+            request = new NavigationScreenRequest.OverviewRoute(new RouteOverviewShowInfo(ROUTE_OVERVIEW_MS));
+        } else {
+            PlaceMetadata metadata = destination == null ? null : knownPlaces.get(destination);
+            if (metadata == null) { callback.onFailure("순정에서 확인한 장소를 먼저 골라 주세요."); return; }
+            request = new NavigationScreenRequest.POIDetailPopup(destination.id(), metadata.provider());
+        }
+        try {
+            helper.requestNavigationScreen(request);
+            Log.i(TAG, "map: requestNavigationScreen " + (routeOverview ? "OverviewRoute" : "POIDetailPopup"));
+            callback.onSuccess(null);
+        } catch (RuntimeException ex) {
+            // A display request has no route side effect, so a failure does not poison the session.
+            callback.onFailure("순정 지도를 열지 못했어요: " + ex.getClass().getSimpleName());
+        }
     }
 
     @Override public void onRouteStateInfo(RouteStateInfo value) {
@@ -283,20 +392,32 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
 
     @Override public void onRouteStarted(RouteStartInfo value) {
         deliver(() -> {
-            if (phase == Phase.QUERY_ROUTE || phase == Phase.PRECHECK)
-                failSession("상태 조회 중 순정 경로 탐색이 시작됐습니다.");
+            Log.i(TAG, "route event: started phase=" + phase);
+            if (phase == Phase.QUERY_ROUTE || phase == Phase.PRECHECK) {
+                failSession("상태 조회 중 순정 경로 탐색이 시작됐습니다."); return;
+            }
+            if (phase != Phase.ROUTING || routeStartSeen) return;
+            // Observed on Pleos Connect 2.1.0: RouteStarted is the only completion signal. Read back after it settles.
+            routeStartSeen = true;
+            long token = operation;
+            main.postDelayed(() -> { if (token == operation && phase == Phase.ROUTING && !poisoned) startReadback(); }, ROUTE_SETTLE_MS);
         });
     }
 
     @Override public void onRoutingCompleted() {
         deliver(() -> {
+            Log.i(TAG, "route event: routingCompleted phase=" + phase);
             if (phase == Phase.QUERY_ROUTE || phase == Phase.PRECHECK) { failSession("상태 조회 중 순정 경로가 바뀌었습니다."); return; }
             if (phase != Phase.ROUTING) return;
-            phase = Phase.READBACK;
-            readDestination = null; readState = null;
-            try { helper.getDestinationInfo(); helper.getRouteStateInfo(); }
-            catch (RuntimeException ex) { failSession("경로 완료 후 재조회 실패. 결과는 미확인입니다."); }
+            startReadback();
         });
+    }
+
+    private void startReadback() {
+        phase = Phase.READBACK;
+        readDestination = null; readState = null;
+        try { helper.getDestinationInfo(); helper.getRouteStateInfo(); }
+        catch (RuntimeException ex) { failSession("경로 시작 후 재조회 실패. 결과는 미확인입니다."); }
     }
 
     @Override public void onDestinationInfo(DestinationInfo value) {
@@ -310,9 +431,19 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
         boolean matches = target != null && PleosRouteStatus.confirmsNativeGuidance(readState)
             && readState.getRouteOption() == RouteOption.valueOf(preference.name())
             && Objects.equals(target.id(), readDestination.getPoiId())
-            && Objects.equals(target.subId(), readDestination.getPoiSubId())
-            && Math.abs(target.latitude() - readDestination.getLatitude()) <= 0.000001
-            && Math.abs(target.longitude() - readDestination.getLongitude()) <= 0.000001;
+            && Objects.equals(target.subId(), Objects.requireNonNullElse(readDestination.getPoiSubId(), ""))
+            && metersBetween(target.latitude(), target.longitude(), readDestination.getLatitude(), readDestination.getLongitude())
+                <= READBACK_COORD_TOLERANCE_M;
+        Log.i(TAG, "readback: phase=" + phase + " mode=" + readState.getNaviMode() + " routing=" + readState.isRouting()
+            + " terms=" + readState.getTermsAgreement() + " option=" + readState.getRouteOption() + " wanted=" + preference
+            + " idMatch=" + (target != null && Objects.equals(target.id(), readDestination.getPoiId()))
+            + " subIdMatch=" + (target != null && Objects.equals(target.subId(), Objects.requireNonNullElse(readDestination.getPoiSubId(), "")))
+            + " coordDeltaM=" + (target == null ? "na" : Math.round(metersBetween(target.latitude(), target.longitude(),
+                readDestination.getLatitude(), readDestination.getLongitude())))
+            + " dLatE6=" + (target == null ? "na" : Math.round((readDestination.getLatitude() - target.latitude()) * 1e6))
+            + " dLonE6=" + (target == null ? "na" : Math.round((readDestination.getLongitude() - target.longitude()) * 1e6))
+            + " readDisplay=" + (readDestination.getDisplayLatitude() == null ? "null" : "set")
+            + " result=" + matches);
         if (!matches) {
             failSession("재조회한 목적지·좌표·경로 옵션이 요청과 일치하지 않습니다. 결과 미확인, 재발행 차단.");
             return;
@@ -330,10 +461,14 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
         deliver(() -> { if (phase == Phase.QUERY_ROUTE || phase == Phase.PRECHECK) failSession("상태 조회 중 목적지가 바뀌었습니다."); });
     }
 
-    @Override public void onRouteCancelled() { deliver(this::routeInterrupted); }
-    @Override public void onRouteEnded() { deliver(this::routeInterrupted); }
+    @Override public void onRouteCancelled() { deliver(() -> routeInterrupted("cancelled")); }
+    @Override public void onRouteEnded() { deliver(() -> routeInterrupted("ended")); }
 
-    private void routeInterrupted() {
+    private void routeInterrupted(String event) {
+        Log.i(TAG, "route event: " + event + " phase=" + phase + " startSeen=" + routeStartSeen);
+        // The stock navi ends its previous (free-drive) session right after RouteStarted. That is a transition,
+        // not a failure; the settled readback decides. An end without a start keeps failing as before.
+        if (phase == Phase.ROUTING && routeStartSeen) return;
         if (phase == Phase.QUERY_ROUTE || phase == Phase.PRECHECK || phase == Phase.ROUTING || phase == Phase.READBACK || phase == Phase.RECOVERY)
             failSession("순정 경로가 취소·종료되어 결과를 확정하지 않습니다.");
     }
@@ -404,6 +539,29 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
             try { old.removeListener(this); } catch (RuntimeException ignored) { }
             try { old.release(); } catch (RuntimeException ignored) { }
         }
+    }
+
+    /** Point types and route ratios only; no names or coordinates in the log. */
+    private static String routePointTypes(List<ai.pleos.playground.navi.data.RoutePointInfo> points) {
+        StringBuilder out = new StringBuilder("[");
+        for (int i = 0; i < Math.min(points.size(), 6); i++) {
+            ai.pleos.playground.navi.data.RoutePointInfo p = points.get(i);
+            if (i > 0) out.append(',');
+            out.append(p == null ? "null" : p.getPointType() + "@" + Math.round(p.getRatioOnRoute() * 100) / 100.0);
+        }
+        return out.append(points.size() > 6 ? ",...]" : "]").toString();
+    }
+
+    /** Haversine distance in meters. */
+    static double metersBetween(double lat1, double lon1, double lat2, double lon2) {
+        double r = 6371000.0, p1 = Math.toRadians(lat1), p2 = Math.toRadians(lat2);
+        double dp = p2 - p1, dl = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+        return 2 * r * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    private static String presence(String value) {
+        return value == null ? "null" : value.isBlank() ? "blank" : "set";
     }
 
     @Override public boolean isDemo() { return false; }
