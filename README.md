@@ -15,8 +15,9 @@
 
 ## 바로 실행 (APK)
 
-- 파일: `apk/nulgil-release.apk` (패키지 `kr.routine.app`, minSdk 34, release 서명). 서명 키는 저장소에 없으므로 이 APK는 저장소만으로 다시 만들 수 없습니다. 저장소에서는 아래 debug 빌드를 사용합니다.
-- 이 APK는 2026-11-10 빌드입니다. 2026-11-21 순정 내비 실연결 시험 뒤의 수정(즐겨찾기 표시, 안내 결과 확인, 예상 시간, 순정 지도 보기, 들를 곳)은 [debug 빌드](#빌드-환경)에 들어 있습니다.
+- 파일: `apk/nulgil-release.apk` (패키지 `kr.routine.app`, 버전 0.3-stops / versionCode 3, minSdk 34, release 서명)
+- 2026-11-21 빌드로, 순정 내비 실연결 시험 뒤의 수정(즐겨찾기 표시, 안내 결과 확인, 예상 시간, 순정 지도 보기, 들를 곳)이 들어 있습니다. 2026-11-10의 0.2 버전과 같은 키로 서명해 기존 설치 위에 업데이트할 수 있습니다.
+- 서명 키는 저장소에 없습니다. 저장소만으로는 debug 빌드를 만들 수 있고, release 빌드는 [빌드 환경](#빌드-환경)의 서명 설정이 필요합니다.
 - 대상: Pleos Connect 에뮬레이터(Android Automotive). 설정은 [테스트 환경](#테스트-환경과-필요한-설정)을 따릅니다.
 - 설치: `adb install -r -g apk/nulgil-release.apk` (`-g`는 차량 속도 권한 `CAR_SPEED`를 함께 허용합니다)
 - 처음 실행하면 **시연 모드**(모의 목적지·교통·안내 응답)로 열립니다. `평소 장소 등록`에서 장소와 요일·출발 시간을 고르면 바로 오늘의 경로가 준비됩니다.
@@ -59,6 +60,7 @@
 - PowerShell 스크립트는 `JAVA_HOME`의 JDK를 쓰고, 없으면 `C:\Program Files\Java\jdk-22`를 찾습니다. 다른 JDK는 `-JdkPath <JDK 폴더>`로 지정합니다.
 - Android SDK Platform 35, 인터넷 연결(google, mavenCentral, `https://nexus-playground.pleos.ai/repository/maven-releases/`)
 - Android: `gradlew.bat :app:assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk`
+- release: 저장소 밖의 서명 설정 파일(`storeFile`, `alias`, `password`)을 지정해 `gradlew.bat :app:assembleRelease -Pnulgil.signing=<signing.properties 경로>` (또는 환경 변수 `NULGIL_SIGNING`) → `app/build/outputs/apk/release/app-release.apk`. 지정하지 않으면 서명되지 않은 APK가 나옵니다. 키와 설정 파일은 커밋하지 않습니다.
 - Android Studio에서 빌드할 때는 `Settings > Build Tools > Gradle > Gradle JDK`를 17~22로 지정합니다(Android Studio 2026.2에 들어 있는 JBR 25로는 Gradle 8.9가 실행되지 않습니다).
 
 ## 웹 프로토타입
