@@ -76,3 +76,7 @@ npx serve invite-web
 
 카카오 JavaScript 키는 Kakao Developers 앱 "공모전_플렉"(카카오맵 일간 무료 쿼터가 있는 계정의 첫 앱)의 키입니다. 같은 계정에서 새로 만든 앱은 무료 쿼터가 없어 결제 수단을 연결해야 하므로 쓰지 않았습니다. 키는 등록한 도메인(`https://nulgil-invite.vercel.app`, 로컬 시험용 `http://localhost:5173`)에서만 동작합니다. 그래서 로컬 시험은 5173 포트로 엽니다. 카카오 검색이 막히거나(도메인·쿼터·오류) 결과가 없으면 OpenStreetMap 검색으로 넘어갑니다(127.0.0.1에서 열어 카카오 401 → OpenStreetMap 결과로 확인).
 
+## 앱 링크
+
+`.well-known/assetlinks.json`은 폰 앱(`kr.routine.phone`, release 키)이 이 도메인의 링크를 열도록 허락합니다. 앱이 설치된 폰에서는 초대 링크와 폰 연결 링크가 앱으로, 설치되지 않은 폰에서는 지금처럼 이 웹으로 열립니다.
+
