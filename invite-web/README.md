@@ -14,9 +14,10 @@
 | `src/views.js` | 화면별 HTML(코드 입력, 장소 고르기, 확인, 보낸 뒤 상태)과 문구 | 문구·배치를 바꿀 때 |
 | `src/app.js` | 화면 흐름과 상태 | 흐름을 바꿀 때 |
 | `src/api.js` | 서버(Supabase RPC) 호출 | 서버 함수가 바뀔 때 |
-| `src/places.js` | 장소 검색(OpenStreetMap Nominatim) | 카카오·네이버 검색 등으로 교체할 때. `{ name, address, latitude, longitude }`만 돌려주면 됩니다 |
-| `src/map.js` | 확인 화면 지도(Leaflet, OpenStreetMap 타일) | 지도를 바꿀 때 |
-| `src/config.js` | 서버 주소, 공개 키, 상태 확인 주기 | 서버를 옮길 때 |
+| `src/places.js` | 장소 검색: 1순위 카카오 키워드 검색, 실패·결과 없음이면 OpenStreetMap Nominatim | 검색 제공자를 바꿀 때. `{ name, address, latitude, longitude }`만 돌려주면 됩니다 |
+| `src/map.js` | 확인 화면 지도: 1순위 카카오맵, SDK를 못 불러오면 Leaflet + OpenStreetMap | 지도를 바꿀 때 |
+| `src/kakao.js` | 카카오맵 JavaScript SDK 불러오기(지도·장소 검색) | 키·로딩 방식을 바꿀 때 |
+| `src/config.js` | 서버 주소, 공개 키, 카카오 JavaScript 키, 상태 확인 주기 | 서버·키를 바꿀 때 |
 
 화면 템플릿은 버튼과 입력에 `data-action`, `data-field` 속성만 붙이고, 동작은 `app.js`가 이 속성으로 찾습니다. 마크업을 새로 짜도 이 속성만 유지하면 됩니다.
 
@@ -70,4 +71,8 @@ npx serve invite-web
 | `src/eta.js` | "약 N분" 어림값. 누를 때만 폰 위치를 쓰고, 공개 OSRM 경로 서버에 약 100m로 반올림한 좌표를 보냄 |
 
 서버: `../server/supabase/migrations/20261121030000_phone_routes.sql`. 서버에는 보낸 장소만 2시간 보관하고, 차의 위치·경로는 받지 않습니다.
+
+## 카카오 검색·지도
+
+카카오 JavaScript 키는 Kakao Developers 앱 "공모전_플렉"(카카오맵 일간 무료 쿼터가 있는 계정의 첫 앱)의 키입니다. 같은 계정에서 새로 만든 앱은 무료 쿼터가 없어 결제 수단을 연결해야 하므로 쓰지 않았습니다. 키는 등록한 도메인(`https://nulgil-invite.vercel.app`, 로컬 시험용 `http://localhost:5173`)에서만 동작합니다. 그래서 로컬 시험은 5173 포트로 엽니다. 카카오 검색이 막히거나(도메인·쿼터·오류) 결과가 없으면 OpenStreetMap 검색으로 넘어갑니다(127.0.0.1에서 열어 카카오 401 → OpenStreetMap 결과로 확인).
 
