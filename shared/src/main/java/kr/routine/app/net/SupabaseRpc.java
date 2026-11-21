@@ -18,8 +18,8 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * Supabase RPC transport shared by the app's server features (friend stops, phone routes). One background thread,
- * callbacks on the main thread. Server errors keep their code first (TRIP_CLOSED, NOT_ALLOWED, ...).
+ * Supabase transport shared by the car app and the phone app: database functions (RPC) and Edge Functions.
+ * One background thread, callbacks on the main thread. Server errors keep their code first (TRIP_CLOSED, ...).
  */
 public final class SupabaseRpc {
     private static final int TIMEOUT_MS = 8000;
@@ -35,17 +35,26 @@ public final class SupabaseRpc {
     }
 
     public <T> void call(String function, JSONObject args, Callback<T> callback, Parser<T> parser) {
+        send("/rest/v1/rpc/" + function, args, callback, parser);
+    }
+
+    /** Supabase Edge Function (functions/v1/&lt;name&gt;), same callback rules. */
+    public <T> void edge(String function, JSONObject body, Callback<T> callback, Parser<T> parser) {
+        send("/functions/v1/" + function, body, callback, parser);
+    }
+
+    private <T> void send(String path, JSONObject args, Callback<T> callback, Parser<T> parser) {
         io.execute(() -> {
             T value; String error;
-            try { value = parser.parse(post(function, args)); error = null; }
+            try { value = parser.parse(post(path, args)); error = null; }
             catch (IOException | JSONException | RuntimeException failure) { value = null; error = describe(failure); }
             final T result = value; final String failure = error;
             main.post(() -> { if (failure == null) callback.onSuccess(result); else callback.onFailure(failure); });
         });
     }
 
-    private String post(String function, JSONObject args) throws IOException {
-        HttpURLConnection connection = (HttpURLConnection) new URL(baseUrl + "/rest/v1/rpc/" + function).openConnection();
+    private String post(String path, JSONObject args) throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) new URL(baseUrl + path).openConnection();
         try {
             connection.setConnectTimeout(TIMEOUT_MS); connection.setReadTimeout(TIMEOUT_MS);
             connection.setRequestMethod("POST"); connection.setDoOutput(true);

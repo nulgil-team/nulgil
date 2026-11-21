@@ -40,6 +40,8 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
     sourceSets.main.java.srcDir '../core/src/main/java'
+    // Server transport shared with the phone app.
+    sourceSets.main.java.srcDir '../shared/src/main/java'
 }
 dependencies {
     implementation 'ai.pleos.playground:NaviHelper:3.0.5'

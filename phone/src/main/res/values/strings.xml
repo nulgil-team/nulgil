@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">늘길</string>
+    <string name="share_label">늘길로 차에 보내기</string>
+    <!-- Same server and public key as the car app (res/values/invite.xml there). -->
+    <string name="server_url" translatable="false">https://bugrlfzfokmfpzshcjrt.supabase.co</string>
+    <string name="server_key" translatable="false">sb_publishable_oc1KkjeSa4J5A_rYWY9s_g_sQZA9kF-</string>
+    <string name="web_host" translatable="false">nulgil-invite.vercel.app</string>
+    <!-- Map tiles for the place preview; tile servers ask apps to identify themselves. -->
+    <string name="map_tile_url" translatable="false">https://tile.openstreetmap.org/{z}/{x}/{y}.png</string>
+    <string name="map_user_agent" translatable="false">NulgilPhone/0.1 (Pleos Connect contest prototype; github.com/nulgil-team/nulgil)</string>
+</resources>

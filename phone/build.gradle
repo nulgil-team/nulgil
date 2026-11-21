@@ -1,0 +1,43 @@
+plugins { id 'com.android.application' version '8.7.3' }
+
+// 늘길 폰 앱: 카카오맵·네이버지도에서 공유한 장소를 친구 차(들를 곳)나 내 차(목적지)로 보낸다.
+// Signed with the same release key as the car app when -Pnulgil.signing=<path> is given (key stays outside the repo).
+def signingPath = project.findProperty('nulgil.signing') ?: System.getenv('NULGIL_SIGNING')
+def signing = new Properties()
+if (signingPath && file(signingPath).isFile()) file(signingPath).withInputStream { signing.load(it) }
+def canSign = signing.getProperty('storeFile') && signing.getProperty('alias') && signing.getProperty('password')
+
+android {
+    namespace 'kr.routine.phone'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'kr.routine.phone'
+        minSdk 30
+        targetSdk 34
+        versionCode 1
+        versionName '0.1'
+    }
+    signingConfigs {
+        if (canSign) {
+            release {
+                storeFile file(signing.getProperty('storeFile'))
+                storePassword signing.getProperty('password')
+                keyAlias signing.getProperty('alias')
+                keyPassword signing.getProperty('password')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (canSign) signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    // Shared with the car app: core model (callbacks) and the Supabase transport.
+    sourceSets.main.java.srcDir '../core/src/main/java'
+    sourceSets.main.java.srcDir '../shared/src/main/java'
+}

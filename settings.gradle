@@ -11,3 +11,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "RoutineDrivingPrototype"
 include(":app")
+// 늘길 폰 앱: 지도 공유 받기 → 친구 차·내 차로 보내기 (docs/06_폰앱_계획.md)
+include(":phone")
