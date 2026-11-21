@@ -13,3 +13,4 @@ demo-data/
 .env.*
 *.jks
 *.keystore
+.claude/

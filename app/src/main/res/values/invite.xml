@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Friend stop invites (친구 들를 곳). Change these to move the server or the friend page; no code change needed. -->
+<resources>
+    <!-- Supabase project URL. Empty disables the feature in 연결 시험 mode. -->
+    <string name="invite_api_url" translatable="false">https://bugrlfzfokmfpzshcjrt.supabase.co</string>
+    <!-- Publishable (public) key. Safe in the app: the database only allows the invite functions. -->
+    <string name="invite_api_key" translatable="false">sb_publishable_oc1KkjeSa4J5A_rYWY9s_g_sQZA9kF-</string>
+    <!-- Friend page address (invite-web). Empty: the car shows the code only, without a QR code. -->
+    <string name="invite_web_url" translatable="false"></string>
+</resources>

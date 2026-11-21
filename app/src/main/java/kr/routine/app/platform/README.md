@@ -10,6 +10,7 @@
 - 경로 요청 뒤 `onRoutingCompleted`는 오지 않았다. `onRouteStarted` 직후 같은 밀리초에 `onRouteEnded`가 온다. `onRouteStarted`를 받으면 1.5초 뒤 목적지·상태를 재조회하고, 시작 직후의 종료·취소는 전환으로 본다.
 - 재조회한 목적지 좌표는 도로 쪽으로 옮겨져 있다(29~283m). POI id·subId는 완전 일치를 요구하고 좌표는 500m 이내만 확인한다.
 - 들를 곳: 출발 전에는 `requestRouteWithWaypoints`, 안내 중에는 경로·경유지·목적지·정차를 확인한 뒤 `addWaypoint`. 경유지 재조회 좌표는 (0, 0)으로 와서 POI id·subId로 확인한다. `addWaypoint` 뒤에는 `RouteCancelled` → 재탐색 → `WaypointChanged(ADD)`+`RouteEnded` 순서로 오며, 추가 중의 취소·종료는 재조회로 판정한다. 순정은 방문 순서를 스스로 정한다(SECOND로 보내도 FIRST에 넣음).
+- 친구 들를 곳(id가 `invite:`로 시작하는 `Destination`): 순정 POI가 아니므로 `RequestWaypointInfo`의 poiId·subId·provider를 빈 값으로, 좌표·이름·주소만 보낸다. 순정은 출발 전 요청과 안내 중 추가 모두 받았다. 재조회는 `poiId` 빈 값, 좌표 (0, 0), 이름은 보낸 그대로라서, 좌표가 오면 500m 이내, 아니면 이름 일치로 확인한다(경유지 수 증가·목적지 유지도 함께). journal의 들를 곳 기록에 이름을 추가했다(`id|subId|lat|lon|name`, 이름 없는 이전 기록도 읽음).
 - 경로 옵션: 순정은 `RouteInfo`의 옵션 대신 자체 설정으로 안내하고, `changeRouteOption`도 에뮬레이터에서는 반영되지 않았다. 목적지·들를 곳이 맞으면 확인으로 처리하고, 옵션이 다르면 `changeRouteOption`을 한 번 보낸 뒤 실제 성향을 결과 문구에 적는다.
 - 복구: 미확인 요청 기록이 있어도 순정이 안내 중이 아니면(`SAFE_GUIDING`, `isRouting=false`) 기록을 해제한다. 확인이 끝난 연결은 `routeIssued`를 풀어 다음 이동에 쓸 수 있다.
 - 로그 태그 `RoutineNavi`에는 개수, 탈락 사유, 원시 ETA·거리, 재조회 판정만 남기고 장소 이름·좌표는 남기지 않는다.

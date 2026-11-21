@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import kr.routine.core.Invite;
 import kr.routine.core.Model;
 import kr.routine.core.Model.*;
 import kr.routine.core.NaviGateway;
@@ -46,6 +47,8 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
     /** One changeRouteOption per issued route, after the destination is verified. */
     private boolean optionChangeTried, optionEventSeen;
     private record PlaceMetadata(String provider, Double displayLatitude, Double displayLongitude) {}
+    /** A friend's place (Invite stop) has no stock POI: it is sent as plain coordinates with a blank POI id. */
+    private static final PlaceMetadata EXTERNAL_PLACE = new PlaceMetadata("", null, null);
     private final Context context;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final SharedPreferences journal;
@@ -63,6 +66,8 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
     private static final int ROUTE_OVERVIEW_MS = 10000;
     private TripInfo tripValue;
     private CurrentLocationInfo originValue;
+    /** Last navi position for the in-app map; memory only. */
+    private Point lastPosition;
     private boolean originAnswered;
     /**
      * Pleos Connect 2.1.0 returns the destination snapped toward the road entrance. Measured on 2026-11-21:
@@ -204,8 +209,8 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
             callback.onSuccess(RouteResult.notSent(ActiveRoute.INACTIVE, "들를 곳을 다시 확인해 주세요: " + ex.getMessage())); return;
         }
         for (Destination stop : checkedStops) {
-            if (!knownPlaces.containsKey(stop)) {
-                callback.onSuccess(RouteResult.notSent(ActiveRoute.INACTIVE, "들를 곳은 순정 즐겨찾기·최근 목적지에서 골라 주세요.")); return;
+            if (stopMetadata(stop) == null) {
+                callback.onSuccess(RouteResult.notSent(ActiveRoute.INACTIVE, "들를 곳은 순정 장소나 친구가 보낸 곳에서 골라 주세요.")); return;
             }
         }
         if (phase != Phase.IDLE || !connected || poisoned) {
@@ -247,7 +252,7 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
                 RouteOption.valueOf(preference.name()), metadata.provider(), false);
             for (int i = 0; i < routeStops.size(); i++) {
                 Destination stop = routeStops.get(i);
-                PlaceMetadata stopMetadata = knownPlaces.get(stop);
+                PlaceMetadata stopMetadata = stopMetadata(stop);
                 if (stopMetadata == null) { finishWithoutRequest(status, "들를 곳 정보가 바뀌었습니다. 다시 골라 주세요."); return; }
                 waypoints.add(waypointRequest(stop, stopMetadata, i == 0 ? WaypointIndex.FIRST : WaypointIndex.SECOND));
             }
@@ -345,6 +350,7 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
 
     @Override public void onCurrentLocationInfo(CurrentLocationInfo value) {
         deliver(() -> {
+            if (value != null) { Point position = Point.of(value.getLatitude(), value.getLongitude()); if (position != null) lastPosition = position; }
             if (phase != Phase.ESTIMATE || originAnswered) return;
             originAnswered = true; originValue = value;
             if (tripValue != null) finishEstimate();
@@ -403,6 +409,8 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
             || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
         return "GRID100_" + (long) Math.floor(lat * 100) + "_" + (long) Math.floor(lon * 100);
     }
+
+    @Override public Point currentPosition() { return lastPosition; }
 
     @Override public void showNativeMap(Destination destination, boolean routeOverview, Callback<Void> callback) {
         requireMain();
@@ -607,8 +615,8 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
         if (phase != Phase.IDLE || !connected || poisoned || helper == null) {
             callback.onSuccess(RouteResult.notSent(ActiveRoute.UNAVAILABLE, "연결이 준비되면 다시 확인하세요.")); return;
         }
-        if (stop == null || !knownPlaces.containsKey(stop)) {
-            callback.onSuccess(RouteResult.notSent(ActiveRoute.ACTIVE, "들를 곳은 순정 즐겨찾기·최근 목적지에서 골라 주세요.")); return;
+        if (stop == null || stopMetadata(stop) == null) {
+            callback.onSuccess(RouteResult.notSent(ActiveRoute.ACTIVE, "들를 곳은 순정 장소나 친구가 보낸 곳에서 골라 주세요.")); return;
         }
         stopTarget = stop; stopCallback = callback;
         stopReadState = null; stopWaypoints = null; stopDestination = null; stopEventSeen = false;
@@ -637,7 +645,7 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
             finishStop(RouteResult.notSent(ActiveRoute.ACTIVE, "지금 안내 중인 목적지예요. 들를 곳으로 넣을 수 없어요.")); return;
         }
         if (!parked.isParked()) { finishStop(RouteResult.notSent(ActiveRoute.ACTIVE, parked.reason())); return; }
-        PlaceMetadata metadata = knownPlaces.get(stopTarget);
+        PlaceMetadata metadata = stopMetadata(stopTarget);
         if (metadata == null) { finishStop(RouteResult.notSent(ActiveRoute.ACTIVE, "장소 정보가 바뀌었습니다. 다시 골라 주세요.")); return; }
         RequestWaypointInfo request;
         try { request = waypointRequest(stopTarget, metadata, stopWaypoints.isEmpty() ? WaypointIndex.FIRST : WaypointIndex.SECOND); }
@@ -684,10 +692,29 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
         if (callback != null) callback.onSuccess(result);
     }
 
+    private PlaceMetadata stopMetadata(Destination stop) {
+        if (stop == null) return null;
+        return Invite.isInviteStop(stop) ? EXTERNAL_PLACE : knownPlaces.get(stop);
+    }
+
     private static RequestWaypointInfo waypointRequest(Destination stop, PlaceMetadata metadata, WaypointIndex index) {
         // Constructor order from navi-data 3.0.4: latitude, longitude, poiName, index, poiId, address, poiSubId, poiProvider.
-        return new RequestWaypointInfo(stop.latitude(), stop.longitude(), stop.name(), index, stop.id(), stop.address(),
-            stop.subId(), metadata.provider() == null ? "" : metadata.provider());
+        boolean external = Invite.isInviteStop(stop);
+        return new RequestWaypointInfo(stop.latitude(), stop.longitude(), stop.name(), index, external ? "" : stop.id(),
+            stop.address(), external ? "" : stop.subId(), metadata.provider() == null ? "" : metadata.provider());
+    }
+
+    /**
+     * A friend's place has no POI id to compare. Match by reported position when the navi gives one, otherwise by
+     * name; the readback also requires exactly one more waypoint and the destination unchanged.
+     */
+    private static boolean sameExternalWaypoint(Destination stop, WaypointInfo w) {
+        if (w.getLatitude() != 0.0 || w.getLongitude() != 0.0)
+            return metersBetween(stop.latitude(), stop.longitude(), w.getLatitude(), w.getLongitude()) <= READBACK_COORD_TOLERANCE_M;
+        if (w.getDisplayLatitude() != null && w.getDisplayLongitude() != null
+            && (w.getDisplayLatitude() != 0.0 || w.getDisplayLongitude() != 0.0))
+            return metersBetween(stop.latitude(), stop.longitude(), w.getDisplayLatitude(), w.getDisplayLongitude()) <= READBACK_COORD_TOLERANCE_M;
+        return w.getName() != null && w.getName().trim().equals(stop.name().trim());
     }
 
     /**
@@ -696,6 +723,7 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
      * applies only when the navi actually reports a position.
      */
     private static boolean sameWaypoint(Destination stop, WaypointInfo w) {
+        if (stop != null && w != null && Invite.isInviteStop(stop)) return sameExternalWaypoint(stop, w);
         if (stop == null || w == null || !Objects.equals(stop.id(), w.getPoiId())
             || !Objects.equals(stop.subId(), Objects.requireNonNullElse(w.getPoiSubId(), ""))) return false;
         if (w.getLatitude() != 0.0 || w.getLongitude() != 0.0)
@@ -741,12 +769,13 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
         return value == null ? null : value.getPoiId() + "/" + Objects.requireNonNullElse(value.getPoiSubId(), "");
     }
 
-    /** Journal format: id|subId|lat|lon per stop, separated by newlines. Names are not needed to verify. */
+    /** Journal format: id|subId|lat|lon|name per stop, separated by newlines. The name verifies a friend's place. */
     private static String encodeStops(List<Destination> stops) {
         StringBuilder out = new StringBuilder();
         for (Destination s : stops) {
             if (out.length() > 0) out.append('\n');
-            out.append(s.id()).append('|').append(s.subId()).append('|').append(s.latitude()).append('|').append(s.longitude());
+            out.append(s.id()).append('|').append(s.subId()).append('|').append(s.latitude()).append('|').append(s.longitude())
+                .append('|').append(s.name().replace('|', ' ').replace('\n', ' '));
         }
         return out.toString();
     }
@@ -756,7 +785,7 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
         List<Destination> out = new ArrayList<>();
         for (String line : value.split("\n")) {
             String[] f = line.split("\\|", -1);
-            out.add(new Destination(f[0], "들를 곳", "", Double.parseDouble(f[2]), Double.parseDouble(f[3]), f[1]));
+            out.add(new Destination(f[0], f.length > 4 && !f[4].isBlank() ? f[4] : "들를 곳", "", Double.parseDouble(f[2]), Double.parseDouble(f[3]), f[1]));
         }
         return out;
     }

@@ -27,7 +27,7 @@ import kr.routine.core.Model.*;
 
 /** Native rendering of the web specification's app area. No navigation decisions or SDK calls. */
 public final class VehicleScreen {
-    public interface Actions {
+    public interface Actions extends InvitePanel.Actions {
         void selectDestination(Destination destination);
         void setPreference(Preference preference);
         void confirm();
@@ -60,6 +60,11 @@ public final class VehicleScreen {
     private VehicleUiState state;
     private VehicleVisuals.Metrics metrics;
     private VehicleVisuals.Palette colors;
+    private UiKit kit;
+    private boolean night;
+    /** The page scroll of the last build; kept when a state update redraws the same screen. */
+    private ScrollView bodyScroll;
+    private String builtScreen;
     private String screen="home", sheet, theme="system", pendingScenario, confirmDestination;
     private String onboardId, onboardSubId;
     private Destination pendingStop;
@@ -110,7 +115,7 @@ public final class VehicleScreen {
     public void restoreState(Bundle saved) {
         if(saved==null) return;
         String candidate=saved.getString("screen","home");
-        screen=List.of("home","picker","guide","settings","onboard1","onboard2","onboard3","stops").contains(candidate)?candidate:"home";
+        screen=List.of("home","picker","guide","settings","onboard1","onboard2","onboard3","stops","invite").contains(candidate)?candidate:"home";
         String savedTheme=saved.getString("theme","system");
         theme=List.of("system","day","night").contains(savedTheme)?savedTheme:"system";
         onboardId=saved.getString("onboardId"); onboardSubId=saved.getString("onboardSubId");
@@ -132,14 +137,18 @@ public final class VehicleScreen {
         try {
             var display=activity.getResources().getDisplayMetrics();
             metrics=new VehicleVisuals.Metrics(width,height,display.density,display.scaledDensity);
-            boolean night=theme.equals("night") || (theme.equals("system") &&
+            night=theme.equals("night") || (theme.equals("system") &&
                 (activity.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES);
             colors=night?VehicleVisuals.NIGHT:VehicleVisuals.DAY;
+            kit=new UiKit(activity,typeface,metrics,colors);
+            int keepScroll=bodyScroll!=null && screen.equals(builtScreen) ? bodyScroll.getScrollY() : 0;
             root.removeAllViews(); root.setBackgroundColor(colors.background()); root.setTag(screen);
             LinearLayout page=column(); page.setPadding(metrics.padding(),0,metrics.padding(),24);
             root.addView(page,new FrameLayout.LayoutParams(MATCH,MATCH));
             header(page);
             ScrollView scroll=new ScrollView(activity); scroll.setFillViewport(true); scroll.setClipToPadding(false);
+            bodyScroll=scroll; builtScreen=screen;
+            if(keepScroll>0) scroll.post(()->scroll.scrollTo(0,keepScroll));
             page.addView(scroll,new LinearLayout.LayoutParams(MATCH,0,1));
             LinearLayout body=column(); body.setPadding(0,12,0,20); scroll.addView(body,new ScrollView.LayoutParams(MATCH,WRAP));
             if(state.notice()!=null && !state.notice().isBlank()) banner(body,state.notice(),true);
@@ -147,6 +156,7 @@ public final class VehicleScreen {
                 case "picker" -> picker(body,false);
                 case "stops" -> stopPicker(body);
                 case "settings" -> settings(body);
+                case "invite" -> new InvitePanel(kit,actions,stop->{pendingStop=stop; showSheet("stop");}).render(body,state.invite(),state.parked(),state.zone(),routeMarkers(),night);
                 case "onboard1" -> onboardConsent(body);
                 case "onboard2" -> picker(body,true);
                 case "onboard3" -> onboardSchedule(body);
@@ -191,6 +201,7 @@ public final class VehicleScreen {
             stopStatus(body);
             add(body,button("순정 지도에서 경로 전체 보기",true,state.canRefresh()&&!state.demo(),()->actions.showNativeMap(true)),32);
             add(body,button("들를 곳 넣기",false,state.canAddStop()&&!stopCandidates().isEmpty(),()->openStopPicker(true)),14);
+            inviteEntry(body,14);
             refreshButton(body); return;
         }
         if(state.activeRoute()==ActiveRoute.UNAVAILABLE || !state.connected()) {
@@ -215,7 +226,7 @@ public final class VehicleScreen {
             LinearLayout summary=column(); summary.setPadding(28,28,28,28); summary.setBackground(shape(colors.surface(),0,26));
             add(summary,text("경로 요약",34,true,colors.text()),0);
             add(summary,text("현재 위치 → 목적지",34,false,colors.secondary()),20);
-            add(summary,text("지도와 실제 경로는 순정 내비에서 확인해 주세요.",30,false,colors.secondary()),24);
+            add(summary,text("아래 지도는 장소 위치예요. 실제 도로 경로는 순정 지도에서 볼 수 있어요.",30,false,colors.secondary()),24);
             add(summary,button("순정 지도에서 보기",false,state.canRefresh()&&!state.demo(),()->actions.showNativeMap(false)),24);
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,WRAP,.8f); lp.leftMargin=40; lead.addView(summary,lp);
         }
@@ -236,6 +247,7 @@ public final class VehicleScreen {
             add(body,button("평소 장소 등록",true,state.canEdit(),()->navigate("onboard1")),32);
             add(body,button("직접 목적지 고르기",false,state.canEdit()&&!state.destinations().isEmpty(),()->navigate("picker")),14);
         }
+        inviteEntry(body,14);
         refreshButton(body);
     }
     private void verdict(LinearLayout parent) {
@@ -276,15 +288,14 @@ public final class VehicleScreen {
             if(historyVisible) add(parent,button("지난 기록",false,true,()->showSheet("why")),12);
         }
     }
+    /** In-app overview map of the current position, stops and destination (RouteMapCard). */
     private void route(LinearLayout parent) {
-        RouteSummaryView road=new RouteSummaryView(activity,colors);
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(MATCH,metrics.routeHeight()); lp.topMargin=24; parent.addView(road,lp);
-        LinearLayout labels=metrics.compact()?column():row();
-        TextView origin=text("현재 위치",34,true,colors.text());
-        TextView destination=text(state.destination()==null?"목적지":state.destination().name(),metrics.compact()?38:46,true,colors.text());
-        if(metrics.compact()) { add(labels,origin,0); add(labels,destination,8); }
-        else { labels.addView(origin,new LinearLayout.LayoutParams(0,WRAP,1)); destination.setGravity(Gravity.END); labels.addView(destination,new LinearLayout.LayoutParams(0,WRAP,1)); }
-        add(parent,labels,0);
+        if(state.destination()==null) return;
+        add(parent,RouteMapCard.build(kit,routeMarkers(),night),24);
+    }
+    private List<MapMath.Marker> routeMarkers() {
+        List<Destination> stops=new java.util.ArrayList<>(state.stops()); stops.addAll(state.addedStopList());
+        return RouteMapCard.markers(state.position(),stops,state.destination());
     }
     private void preferences(LinearLayout parent) {
         LinearLayout choices=metrics.stackPreferences()?column():row();
@@ -315,6 +326,7 @@ public final class VehicleScreen {
         stopStatus(body);
         if(state.activeRoute()==ActiveRoute.ACTIVE && (state.stops().size()+state.addedStops())<Model.MAX_STOPS)
             add(body,button("들를 곳 넣기",false,state.canAddStop()&&!stopCandidates().isEmpty(),()->openStopPicker(true)),20);
+        if(state.activeRoute()==ActiveRoute.ACTIVE) inviteEntry(body,14);
         if(state.departureState()==DepartureController.State.UNCONFIRMED)
             banner(body,"같은 이동은 다시 요청하지 않아요. 순정 내비에서 현재 경로를 확인해 주세요.",true);
         if(state.demo()) banner(body,"모의 응답입니다. 실제 내비에는 연결하지 않았어요.",false);
@@ -372,7 +384,7 @@ public final class VehicleScreen {
         }
         add(body,text("연결 시험",40,true,colors.text()),32);
         add(body,button(state.demo()?"순정 내비 연결 시험":"모의 시연으로 전환",false,state.canSwitchMode(),()->showSheet("mode")),14);
-        description(body,"들를 곳은 순정 장소에서 고를 수 있어요. 친구 제안과 폰 전송은 아직 연결되지 않았어요.");
+        description(body,state.invite().available()?"들를 곳은 순정 장소나 친구가 보낸 곳에서 고를 수 있어요. 폰에서 경로 보내기는 아직 연결되지 않았어요.":"들를 곳은 순정 장소에서 고를 수 있어요.");
         if(state.demo()) {
             add(body,text("개발 시연",40,true,colors.text()),32);
             description(body,"아래 재현은 모의 이동과 시연 기록을 초기화해요. 먼저 기록 저장에 동의해 주세요.");
@@ -491,7 +503,7 @@ public final class VehicleScreen {
     private void stops(LinearLayout parent) {
         LinearLayout box=column(); box.setPadding(28,24,28,24); box.setBackground(shape(colors.surface(),0,26));
         add(box,text(state.stops().isEmpty()?"들를 곳":"들를 곳 "+state.stops().size()+"/"+Model.MAX_STOPS,34,true,colors.text()),0);
-        if(state.stops().isEmpty()) add(box,text("가는 길에 들를 곳을 순정 즐겨찾기·최근 목적지에서 넣을 수 있어요. 최대 "+Model.MAX_STOPS+"곳.",30,false,colors.secondary()),10);
+        if(state.stops().isEmpty()) add(box,text("가는 길에 들를 곳을 순정 즐겨찾기·최근 목적지"+(state.invite().available()?"나 친구가 보낸 곳":"")+"에서 넣을 수 있어요. 최대 "+Model.MAX_STOPS+"곳.",30,false,colors.secondary()),10);
         for(int i=0;i<state.stops().size();i++) {
             Destination stop=state.stops().get(i);
             LinearLayout line=row(); line.setGravity(Gravity.CENTER_VERTICAL);
@@ -502,7 +514,14 @@ public final class VehicleScreen {
         }
         if(state.stops().size()<Model.MAX_STOPS)
             add(box,button("들를 곳 추가",false,state.canPlanStops()&&!stopCandidates().isEmpty(),()->openStopPicker(false)),16);
+        inviteEntry(box,12);
         add(parent,box,24);
+    }
+    /** Entry to the friend stop screen, with the number of places waiting. Hidden when the build has no invites. */
+    private void inviteEntry(LinearLayout parent,int top) {
+        if(!state.invite().available()) return;
+        boolean waiting=state.invite().waiting()>0;
+        add(parent,button(InvitePanel.entryLabel(state.invite()),waiting,true,()->navigate("invite")),top);
     }
     private void stopPicker(LinearLayout body) {
         heading(body,stopPickerLive?"어디에 들를까요?":"가는 길에 어디에 들를까요?");
@@ -550,12 +569,9 @@ public final class VehicleScreen {
     private void refreshButton(LinearLayout parent) { add(parent,button("상태 다시 확인",false,state.canRefresh(),actions::refresh),28); }
     private void navigate(String next) { screen=next; sheet=null; rebuild(); }
     private void showSheet(String next) { sheet=next; rebuild(); }
-    private void heading(LinearLayout parent,String value) { TextView title=text(value,metrics.compact()?52:62,true,colors.text()); title.setAccessibilityHeading(true); add(parent,title,12); }
-    private void description(LinearLayout parent,String value) { if(value!=null&&!value.isBlank())add(parent,text(value,38,false,colors.secondary()),14); }
-    private void banner(LinearLayout parent,String value,boolean warning) {
-        TextView banner=text(value,34,false,warning?colors.warningText():colors.text()); banner.setPadding(24,20,24,20);
-        banner.setBackground(shape(warning?colors.warning():colors.surface(),0,20)); add(parent,banner,16);
-    }
+    private void heading(LinearLayout parent,String value) { kit.heading(parent,value); }
+    private void description(LinearLayout parent,String value) { kit.description(parent,value); }
+    private void banner(LinearLayout parent,String value,boolean warning) { kit.banner(parent,value,warning); }
     private void actionRow(LinearLayout parent,Button primary,Button secondary) {
         primary.setMinHeight(metrics.primaryHeight()); primary.setMinimumHeight(metrics.primaryHeight());
         if(secondary!=null) { secondary.setMinHeight(metrics.primaryHeight()); secondary.setMinimumHeight(metrics.primaryHeight()); }
@@ -571,36 +587,14 @@ public final class VehicleScreen {
             ((LinearLayout)scroll.getChildAt(0)).addView(line,new LinearLayout.LayoutParams(MATCH,WRAP));
         } else add(parent,line,0);
     }
-    private TextView text(String value,int size,boolean bold,int color) {
-        TextView view=new TextView(activity); view.setText(value==null?"":value);
-        view.setTextSize(TypedValue.COMPLEX_UNIT_PX,metrics.text(size)); view.setTextColor(color);
-        view.setTypeface(typeface,bold?Typeface.BOLD:Typeface.NORMAL); view.setIncludeFontPadding(true);
-        view.setBreakStrategy(android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY);
-        return view;
-    }
-    private Button button(String value,boolean primary,boolean enabled,Runnable command) {
-        Button button=new Button(activity); button.setAllCaps(false); button.setText(value);
-        button.setTextSize(TypedValue.COMPLEX_UNIT_PX,metrics.text(primary?48:34));
-        button.setTypeface(typeface,primary?Typeface.BOLD:Typeface.NORMAL);
-        int height=primary?metrics.primaryHeight():metrics.touch(84);
-        button.setMinHeight(height); button.setMinimumHeight(height);
-        button.setMinWidth(metrics.touch(84)); button.setMinimumWidth(metrics.touch(84));
-        button.setPadding(24,16,24,16); button.setSingleLine(false); button.setGravity(Gravity.CENTER);
-        button.setTextColor(enabled?(primary?colors.primaryText():colors.text()):colors.muted());
-        button.setBackgroundTintList(null);
-        button.setBackground(background(enabled?(primary?colors.primary():colors.surface()):colors.raised(),0));
-        button.setEnabled(enabled); button.setOnClickListener(v->command.run());
-        button.setOnFocusChangeListener((v,focused)->button.setBackground(background(enabled?(primary?colors.primary():colors.surface()):colors.raised(),focused?colors.selectedLine():0)));
-        return button;
-    }
-    private RippleDrawable background(int color,int border) { return new RippleDrawable(ColorStateList.valueOf(colors.selectedLine()&0x33ffffff),shape(color,border,20),null); }
-    private GradientDrawable shape(int color,int border,int radius) {
-        GradientDrawable drawable=new GradientDrawable(); drawable.setColor(color); drawable.setCornerRadius(radius);
-        if(border!=0)drawable.setStroke(3,border); return drawable;
-    }
-    private LinearLayout column() { LinearLayout value=new LinearLayout(activity); value.setOrientation(LinearLayout.VERTICAL); return value; }
-    private LinearLayout row() { LinearLayout value=new LinearLayout(activity); value.setOrientation(LinearLayout.HORIZONTAL); value.setGravity(Gravity.CENTER_VERTICAL); return value; }
-    private void add(LinearLayout parent,View child,int top) { LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(MATCH,WRAP); lp.topMargin=top; parent.addView(child,lp); }
+    // Widgets come from UiKit so every screen shares one look; change UiKit to restyle them.
+    private TextView text(String value,int size,boolean bold,int color) { return kit.text(value,size,bold,color); }
+    private Button button(String value,boolean primary,boolean enabled,Runnable command) { return kit.button(value,primary,enabled,command); }
+    private RippleDrawable background(int color,int border) { return kit.background(color,border); }
+    private GradientDrawable shape(int color,int border,int radius) { return kit.shape(color,border,radius); }
+    private LinearLayout column() { return kit.column(); }
+    private LinearLayout row() { return kit.row(); }
+    private void add(LinearLayout parent,View child,int top) { kit.add(parent,child,top); }
     private static boolean terminal(VehicleUiState value) { return switch(value.departureState()) { case REQUESTING,VERIFIED,UNCONFIRMED->true; default->false; }; }
     private static String destinationKey(Destination value) { return value==null?null:value.id()+"/"+value.subId(); }
     private static String preferenceLabel(Preference value) { return switch(value) { case RECOMMENDED->"추천 경로"; case SHORT_TIME->"빠른 경로"; case COMFORTABLE->"편안한 경로"; }; }

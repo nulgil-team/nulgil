@@ -10,6 +10,8 @@ public final class DemoFixtures {
     private DemoFixtures() {}
     public static final String ORIGIN = "DEMO_ORIGIN";
     public static final String BASIS = "DEMO_ESTIMATE_DEFAULT";
+    /** Invented demo position (성남시청 부근, public place). */
+    public static final Point ORIGIN_POINT = new Point(37.4200, 127.1265);
     public static final long NOW = ZonedDateTime.of(2026,11,4,8,0,0,0,ZoneId.of("Asia/Seoul")).toInstant().toEpochMilli();
     public static final Destination OFFICE = new Destination("36khp2hdj2cfcm5nqhe3", "소프트웨어드림센터", "경기도 성남시 수정구 창업로40번길 6", 37.41275833, 127.09481944, "0");
     public static final Destination OTHER = new Destination("36khp37hh8gqcm5nqhe5", "강남 거래처", "서울시 강남구 남부순환로 2621", 37.48544722, 127.03636666, "0");

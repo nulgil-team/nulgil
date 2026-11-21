@@ -1,0 +1,73 @@
+/*
+ * Design tokens for the friend invite page.
+ * Change the look of the whole page here: colors, type, spacing, radius, shadow.
+ * Components (components.css) only reference these variables.
+ */
+:root {
+  /* brand */
+  --color-brand: #0b5fb8;
+  --color-brand-strong: #084a8f;
+  --color-on-brand: #ffffff;
+
+  /* surfaces and text */
+  --color-bg: #f3f2ee;
+  --color-surface: #ffffff;
+  --color-surface-muted: #ebe9e3;
+  --color-text: #1b1c1e;
+  --color-text-muted: #5c6066;
+  --color-line: #d9d6ce;
+
+  /* status */
+  --color-success: #1f7a45;
+  --color-success-bg: #e5f3ea;
+  --color-warning: #8a5a00;
+  --color-warning-bg: #fbf0d9;
+  --color-danger: #a3271d;
+  --color-danger-bg: #f9e3e0;
+
+  /* type */
+  --font-family: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  --font-size-xs: 13px;
+  --font-size-sm: 15px;
+  --font-size-md: 17px;
+  --font-size-lg: 21px;
+  --font-size-xl: 27px;
+  --font-weight-regular: 400;
+  --font-weight-bold: 700;
+  --line-height: 1.5;
+
+  /* spacing and shape */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.06), 0 6px 20px rgba(0, 0, 0, 0.05);
+  --touch: 48px;
+  --page-max: 520px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-brand: #5aa2ee;
+    --color-brand-strong: #7db7f3;
+    --color-on-brand: #0b1520;
+    --color-bg: #121314;
+    --color-surface: #1c1d1f;
+    --color-surface-muted: #26282b;
+    --color-text: #ecebe8;
+    --color-text-muted: #a3a6ab;
+    --color-line: #34373b;
+    --color-success: #6fd39a;
+    --color-success-bg: #17301f;
+    --color-warning: #f0c065;
+    --color-warning-bg: #33280f;
+    --color-danger: #f08a80;
+    --color-danger-bg: #3a1a17;
+    --shadow-card: none;
+  }
+}

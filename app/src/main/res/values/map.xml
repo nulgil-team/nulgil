@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- In-app map tiles. Change these to use another tile server (keep its attribution). -->
+<resources>
+    <string name="map_tile_url" translatable="false">https://tile.openstreetmap.org/{z}/{x}/{y}.png</string>
+    <string name="map_attribution" translatable="false">© OpenStreetMap contributors</string>
+    <!-- Tile servers ask apps to identify themselves. -->
+    <string name="map_user_agent" translatable="false">Nulgil/0.6 (Pleos Connect contest prototype; github.com/nulgil-team/nulgil)</string>
+</resources>

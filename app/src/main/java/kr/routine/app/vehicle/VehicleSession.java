@@ -27,8 +27,15 @@ public final class VehicleSession implements AutoCloseable {
     private boolean lastParked, lastFresh;
     private boolean explicitlyDismissed;
     private long sequence, demoNow = DemoFixtures.NOW;
+    /** Friend suggestions; null when this build has no invite service. */
+    private final InviteInbox invites;
 
     public VehicleSession(NaviGateway gateway, RoutineStore store, boolean demo, Clock clock, ZoneId zone) {
+        this(gateway, store, demo, clock, zone, null);
+    }
+
+    public VehicleSession(NaviGateway gateway, RoutineStore store, boolean demo, Clock clock, ZoneId zone, InviteInbox invites) {
+        this.invites = invites;
         this.gateway = Objects.requireNonNull(gateway); this.store = Objects.requireNonNull(store);
         this.demo = demo; this.clock = Objects.requireNonNull(clock); this.zone = Objects.requireNonNull(zone);
         if (gateway.isDemo() != demo) throw new IllegalArgumentException("gateway mode mismatch");
@@ -65,7 +72,93 @@ public final class VehicleSession implements AutoCloseable {
             gateway instanceof DemoNaviGateway g ? g.startCount() : -1, store.rules(),
             departure.stops(), departure.addedStops(), departure.stopState().name(), departure.stopMessage(),
             edit && destination != null,
-            connected && !closed && !working && parked && !collectionBlocked && departure.canAddStop());
+            connected && !closed && !working && parked && !collectionBlocked && departure.canAddStop(),
+            inviteState(edit && destination != null,
+                connected && !closed && !working && parked && !collectionBlocked && departure.canAddStop(), parked),
+            position(), departure.addedStopList());
+    }
+
+    private Point position() {
+        try { return connected && !closed ? gateway.currentPosition() : null; } catch (RuntimeException unavailable) { return null; }
+    }
+
+    // --- Friend suggestions (친구 들를 곳) ---
+
+    private InviteUiState inviteState(boolean canPlan, boolean canAddNow, boolean parked) {
+        if (invites == null) return InviteUiState.unavailable();
+        long at = clock.millis();
+        boolean open = invites.isOpen(at);
+        String mode = "NONE", hint = "";
+        boolean guiding = departure.activeRoute() == ActiveRoute.ACTIVE;
+        if (guiding && canAddNow) mode = "NOW";
+        else if (!guiding && canPlan && departure.stops().size() < Model.MAX_STOPS) mode = "PLAN";
+        else if (!parked) hint = "정차 중에 경로에 넣을 수 있어요.";
+        else if (guiding || departure.stops().size() >= Model.MAX_STOPS || locked())
+            hint = "들를 곳은 " + Model.MAX_STOPS + "곳까지예요. 지금은 경로에 더 넣을 수 없어요.";
+        else hint = "목적지를 고르면 들를 곳으로 담을 수 있어요.";
+        List<InviteUiState.Item> pending = new ArrayList<>(), handled = new ArrayList<>();
+        for (Invite.Suggestion s : invites.pending()) {
+            Destination stop = s.toStop();
+            boolean planned = departure.stops().stream().anyMatch(p -> Model.samePlace(p, stop));
+            pending.add(item(s, planned ? "PLANNED" : "PENDING"));
+        }
+        for (Invite.Suggestion s : invites.handled()) handled.add(item(s, invites.status(s).name()));
+        Invite.Trip trip = invites.trip();
+        return new InviteUiState(true, open, invites.opening(), open ? trip.code() : "", open ? invites.inviteUrl() : "",
+            open ? trip.expiresAt() : 0, pending, handled, invites.message(),
+            !closed && !open && !invites.opening(), mode, hint);
+    }
+
+    private static InviteUiState.Item item(Invite.Suggestion s, String status) {
+        return new InviteUiState.Item(s.id(), s.sender(), s.placeName(), s.address(), s.note(), status, s.toStop());
+    }
+
+    /** Creates an invite code friends can use. Network only; never touches the navi. */
+    public void openInvite() { if (invites != null && !closed) invites.open(clock.millis(), this::emit); }
+
+    /** Ends the invite for everyone. Planned friend stops stay planned. */
+    public void closeInvite() { if (invites != null && !closed) invites.close(this::emit); }
+
+    /** Accepts a friend's place: added to the guided route, or planned with the destination before departure. */
+    public void acceptSuggestion(String id) {
+        if (invites == null || closed) return;
+        Invite.Suggestion s = invites.find(id);
+        if (s == null || invites.status(s) != Invite.Status.PENDING) return;
+        String mode = snapshot().invite().addMode();
+        if (mode.equals("NOW")) addStopNow(s.toStop());
+        else if (mode.equals("PLAN")) addPlannedStop(s.toStop());
+    }
+
+    /** Passes over a friend's place; the friend sees it was not added. */
+    public void dismissSuggestion(String id) {
+        if (invites == null || closed) return;
+        Invite.Suggestion s = invites.find(id);
+        if (s == null) return;
+        Destination stop = s.toStop();
+        if (departure.stops().stream().anyMatch(p -> Model.samePlace(p, stop))) {
+            if (!snapshot().canPlanStops()) return;
+            departure.setStops(departure.stops().stream().filter(p -> !Model.samePlace(p, stop)).toList());
+        }
+        invites.dismiss(id, this::emit);
+    }
+
+    /** Tells the friend what happened to their place once a stop request settles. */
+    private Runnable reportingStop(Destination stop, Runnable then) {
+        String id = Invite.suggestionId(stop);
+        if (id == null || invites == null) return then;
+        boolean[] requested = {false}, reported = {false};
+        return () -> {
+            then.run();
+            if (reported[0]) return;
+            StopState state = departure.stopState();
+            if (state == StopState.REQUESTING) {
+                if (!requested[0]) { requested[0] = true; invites.setStatus(id, Invite.Status.REQUESTED, this::emit); }
+                return;
+            }
+            if (!requested[0]) return; // refused before anything was sent: the place stays waiting
+            Invite.Status result = Invite.after(state);
+            if (result != null) { reported[0] = true; invites.setStatus(id, result, this::emit); }
+        };
     }
 
     /**
@@ -109,7 +202,7 @@ public final class VehicleSession implements AutoCloseable {
         Destination current = resolve(value);
         if (current == null) { notice = "현재 내비에서 장소를 다시 확인해 주세요."; emit(); return; }
         notice = "";
-        departure.addStop(current, this::emit);
+        departure.addStop(current, reportingStop(current, this::emit));
     }
 
     public void setListener(Runnable value) { listener = value; if (listener != null) listener.run(); }
@@ -128,6 +221,7 @@ public final class VehicleSession implements AutoCloseable {
         if (closed || working()) return;
         if (!connected) { started = false; connect(); return; }
         pendingForeground = false; busy = true; status = "현재 안내 상태를 확인하고 있어요";
+        if (invites != null) invites.poll(clock.millis(), true, this::emit);
         long request = ++sequence;
         departure.refreshActiveRoute(() -> {
             if (!current(request)) return;
@@ -155,6 +249,7 @@ public final class VehicleSession implements AutoCloseable {
     /** Only redraw when a gate or estimate validity changed, not once every clock tick. */
     public void tick() {
         if (closed) return;
+        if (invites != null) invites.poll(clock.millis(), false, this::emit);
         boolean parked = parked(), fresh = validEstimate();
         if (parked != lastParked || fresh != lastFresh) { lastParked = parked; lastFresh = fresh; emit(); }
         drainForeground();
@@ -244,7 +339,10 @@ public final class VehicleSession implements AutoCloseable {
         final Estimate submitted = estimate;
         final long request = ++sequence;
         final boolean[] persisted = {false};
+        final List<String> friendStops = departure.stops().stream().map(Invite::suggestionId).filter(Objects::nonNull).toList();
+        final boolean[] dispatched = {false}, reported = {false};
         departure.confirm(local.getDayOfWeek().getValue(), local.getHour() * 60 + local.getMinute(), at, () -> {
+            reportPlannedFriendStops(friendStops, dispatched, reported);
             if (!current(request)) return;
             if (!persisted[0] && departure.state() == DepartureController.State.VERIFIED) {
                 persisted[0] = true;
@@ -253,6 +351,24 @@ public final class VehicleSession implements AutoCloseable {
             emit(); drainForeground();
         });
         emit();
+    }
+
+    /** Planned friend stops: REQUESTED once the trip is dispatched, then the verified or unconfirmed result. */
+    private void reportPlannedFriendStops(List<String> ids, boolean[] dispatched, boolean[] reported) {
+        if (invites == null || ids.isEmpty() || reported[0]) return;
+        DepartureController.State state = departure.state();
+        if (state == DepartureController.State.REQUESTING) {
+            if (!dispatched[0]) { dispatched[0] = true; for (String id : ids) invites.setStatus(id, Invite.Status.REQUESTED, this::emit); }
+            return;
+        }
+        if (!dispatched[0] || state == DepartureController.State.CHECKING_ROUTE) return;
+        reported[0] = true;
+        Invite.Status result = switch (state) {
+            case VERIFIED -> Invite.Status.ADDED;
+            case UNCONFIRMED -> Invite.Status.UNCONFIRMED;
+            default -> Invite.Status.PENDING; // the gateway proved nothing was sent
+        };
+        for (String id : ids) invites.setStatus(id, result, this::emit);
     }
 
     public void dismiss() {
@@ -337,6 +453,11 @@ public final class VehicleSession implements AutoCloseable {
     }
     private Destination resolve(Destination value) {
         if (value == null) return null;
+        if (Invite.isInviteStop(value)) {
+            // A friend's place is resolved from the inbox, and only while it still waits for the driver.
+            Invite.Suggestion s = invites == null ? null : invites.find(Invite.suggestionId(value));
+            return s != null && invites.status(s) == Invite.Status.PENDING ? s.toStop() : null;
+        }
         List<Destination> found = destinations.stream().filter(p -> p.id().equals(value.id()) && p.subId().equals(value.subId())).toList();
         return found.size() == 1 ? found.get(0) : null;
     }

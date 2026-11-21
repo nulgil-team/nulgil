@@ -7,6 +7,8 @@ $classes = Join-Path $run 'classes'
 $sources = @((Get-ChildItem (Join-Path $project 'core\src\main\java\kr\routine\core') -Filter '*.java').FullName)
 $sources += @((Get-ChildItem (Join-Path $project 'app\src\main\java\kr\routine\app\vehicle') -Filter '*.java').FullName)
 $sources += Join-Path $project 'app\src\main\java\kr\routine\app\ui\VehicleVisuals.java'
+$sources += Join-Path $project 'app\src\main\java\kr\routine\app\ui\MapMath.java'
+$sources += Join-Path $PSScriptRoot 'MapMathCheck.java'
 $sources += Join-Path $PSScriptRoot 'VehicleSessionCheck.java'
 $sources += Join-Path $PSScriptRoot 'VehicleVisualsCheck.java'
 $sources += Join-Path $PSScriptRoot 'AndroidSyntaxCheck.java'
@@ -16,6 +18,8 @@ if ($LASTEXITCODE) { throw 'Plain Java compilation failed' }
 if ($LASTEXITCODE) { throw 'Session checks failed' }
 & (Join-Path $JdkPath 'bin\java.exe') -Xmx128m -cp $classes VehicleVisualsCheck 2>&1 | Tee-Object (Join-Path $run 'visuals.log')
 if ($LASTEXITCODE) { throw 'Visual token checks failed' }
+& (Join-Path $JdkPath 'bin\java.exe') -Xmx128m -cp $classes MapMathCheck 2>&1 | Tee-Object (Join-Path $run 'map.log')
+if ($LASTEXITCODE) { throw 'Map math checks failed' }
 & (Join-Path $JdkPath 'bin\java.exe') -Xmx128m -cp $classes AndroidSyntaxCheck (Join-Path $project 'app\src\main\java') 2>&1 | Tee-Object (Join-Path $run 'syntax.log')
 if ($LASTEXITCODE) { throw 'Native Java syntax check failed' }
 [xml]$manifest = [IO.File]::ReadAllText((Join-Path $project 'app\src\main\AndroidManifest.xml'))

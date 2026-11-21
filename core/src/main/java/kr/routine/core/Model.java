@@ -40,6 +40,17 @@ public final class Model {
                 throw new IllegalArgumentException("유효한 순정 장소 정보가 필요합니다.");
         }
     }
+    /** A map position. (0, 0) is how the navi reports "unknown", so it is rejected. */
+    public record Point(double latitude, double longitude) {
+        public Point {
+            if (!Double.isFinite(latitude) || !Double.isFinite(longitude) || latitude < -85 || latitude > 85
+                || longitude < -180 || longitude > 180 || (latitude == 0.0 && longitude == 0.0))
+                throw new IllegalArgumentException("잘못된 위치");
+        }
+        public static Point of(double latitude, double longitude) {
+            try { return new Point(latitude, longitude); } catch (IllegalArgumentException invalid) { return null; }
+        }
+    }
     public record Rule(Destination destination, int day, int minute) {
         public Rule { Objects.requireNonNull(destination); checkTime(day, minute); }
     }

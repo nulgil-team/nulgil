@@ -16,8 +16,8 @@ android {
         applicationId 'kr.routine.app'
         minSdk 34
         targetSdk 34
-        versionCode 4
-        versionName '0.4'
+        versionCode 6
+        versionName '0.6'
     }
     signingConfigs {
         if (canSign) {
@@ -41,4 +41,8 @@ android {
     }
     sourceSets.main.java.srcDir '../core/src/main/java'
 }
-dependencies { implementation 'ai.pleos.playground:NaviHelper:3.0.5' }
+dependencies {
+    implementation 'ai.pleos.playground:NaviHelper:3.0.5'
+    // QR code of the friend invite link (encoding only, no camera).
+    implementation 'com.google.zxing:core:3.5.3'
+}

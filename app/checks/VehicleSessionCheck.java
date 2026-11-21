@@ -176,6 +176,56 @@ public final class VehicleSessionCheck {
             check(s.snapshot().departureState()==DepartureController.State.VERIFIED && g.startCount()==2,"second trip can be requested once");
             s.close();
         }
+        {
+            // Friend suggestions planned before departure: sent with the destination, then reported to the friend.
+            RoutineStore store=store("invite-plan"); DemoNaviGateway g=new DemoNaviGateway();
+            DemoInviteService service=new DemoInviteService(CLOCK::millis);
+            VehicleSession s=new VehicleSession(g,store,true,CLOCK,ZONE,new InviteInbox(service,new InviteService.MemoryTripStore(),CLOCK.millis()));
+            s.connect();
+            check(s.snapshot().invite().available() && s.snapshot().invite().canOpen() && !s.snapshot().invite().open(),"invite starts closed and can be opened");
+            s.openInvite(); s.refresh();
+            check(s.snapshot().invite().code().equals(DemoInviteService.CODE) && s.snapshot().invite().waiting()==2 && g.startCount()==0,
+                "opening an invite shows friends' places and touches no route");
+            check(s.snapshot().invite().addMode().equals("NONE") && !s.snapshot().invite().addHint().isBlank(),"without a destination a place cannot be planned yet");
+            s.acceptSuggestion("demo-1");
+            check(s.snapshot().stops().isEmpty() && service.writes().isEmpty(),"accept without a destination does nothing");
+            s.selectDestination(DemoFixtures.OFFICE);
+            check(s.snapshot().invite().addMode().equals("PLAN"),"with a destination a friend's place can be planned");
+            s.acceptSuggestion("demo-1");
+            check(s.snapshot().stops().size()==1 && Invite.isInviteStop(s.snapshot().stops().get(0)) && service.writes().isEmpty()
+                && s.snapshot().invite().pending().get(0).status().equals("PLANNED"),"planning a friend's place sends nothing yet");
+            s.confirm();
+            check(g.startCount()==1 && g.routeStops().size()==1 && service.writes().equals(List.of("demo-1=REQUESTED","demo-1=ADDED")),
+                "confirm sends the friend's place with the destination once and tells the friend it was added");
+            s.close();
+        }
+        {
+            // Friend suggestion while guiding: one request, result reported, never resent.
+            RoutineStore store=store("invite-live"); DemoNaviGateway g=new DemoNaviGateway(); g.setActiveRoute(ActiveRoute.ACTIVE);
+            DemoInviteService service=new DemoInviteService(CLOCK::millis);
+            VehicleSession s=new VehicleSession(g,store,true,CLOCK,ZONE,new InviteInbox(service,new InviteService.MemoryTripStore(),CLOCK.millis()));
+            s.connect(); s.openInvite(); s.refresh();
+            check(s.snapshot().invite().addMode().equals("NOW"),"while guiding and parked a friend's place goes to the route now");
+            check(DemoFixtures.ORIGIN_POINT.equals(s.snapshot().position()),"the map gets the navi position of a connected session");
+            g.setParked(false); s.tick();
+            check(s.snapshot().invite().addMode().equals("NONE"),"moving blocks adding a friend's place");
+            s.acceptSuggestion("demo-2");
+            check(g.stopRequests()==0 && service.writes().isEmpty(),"accept while moving sends nothing");
+            g.setParked(true); s.tick();
+            s.acceptSuggestion("demo-2"); s.acceptSuggestion("demo-2");
+            check(g.stopRequests()==1 && service.writes().equals(List.of("demo-2=REQUESTED","demo-2=ADDED")),"one stop request and the friend is told it was added");
+            s.dismissSuggestion("demo-1");
+            check(service.writes().get(2).equals("demo-1=DISMISSED") && s.snapshot().invite().waiting()==0,"passing over tells the friend");
+            g.setFailNext(true);
+            service.receive("demo-3","수아","성수 꽃집","",37.5446,127.0557,"");
+            s.refresh(); s.acceptSuggestion("demo-3");
+            check(service.writes().subList(3,5).equals(List.of("demo-3=REQUESTED","demo-3=UNCONFIRMED")),"an unverified stop is reported as unconfirmed");
+            s.closeInvite();
+            check(!s.snapshot().invite().open() && service.closed()==1,"closing the invite ends it on the server");
+            check(s.snapshot().addedStopList().size()==1 && s.snapshot().addedStopList().get(0).name().equals("정자동 카페거리"),
+                "only verified additions appear as stops on the map");
+            s.close();
+        }
         System.out.println("VehicleSessionCheck: "+checks+" assertions passed");
     }
 }

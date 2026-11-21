@@ -43,6 +43,7 @@ public final class StopChecks {
         expect(throwsArg(() -> Model.checkStops(HOME, List.of(HOME))), "destination cannot be a stop");
         Destination moved = new Destination(A.id(), A.name(), A.address(), A.latitude() + 0.001, A.longitude(), A.subId());
         expect(Model.samePlace(A, moved), "same POI id and subId is the same place despite snapped coordinates");
+        expect(Model.Point.of(0, 0) == null && Model.Point.of(37.5, 127.0) != null, "the navi's (0, 0) means no position");
     }
 
     private static void checkDemoStartWithStops() throws Exception {

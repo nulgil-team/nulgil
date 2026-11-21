@@ -76,6 +76,7 @@ public final class DemoNaviGateway implements NaviGateway {
         callback.onSuccess(new RouteResult(true,"모의 안내 설정 확인: "+destination.name()+" · "+preference+". 순정 내비에는 연결하지 않았습니다."));
     }
     private boolean ready(Callback<?> callback){if(!connected||closed){callback.onFailure("모의 연결이 준비되지 않았습니다");return false;}return true;}
+    @Override public Point currentPosition(){return connected&&!closed?DemoFixtures.ORIGIN_POINT:null;}
     @Override public boolean isDemo(){return true;}
     @Override public boolean isParked(){return connected&&!closed&&parked;}
     @Override public void close(){closed=true;connected=false;}

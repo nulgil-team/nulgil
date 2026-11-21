@@ -35,6 +35,11 @@ public interface NaviGateway extends AutoCloseable {
     default void showNativeMap(Destination destination, boolean routeOverview, Callback<Void> callback) {
         callback.onFailure("이 연결에서는 순정 지도를 열 수 없어요.");
     }
+    /**
+     * Last position the navi reported (kept in memory only, for the in-app map). Null when unknown.
+     * Never triggers a navi call by itself.
+     */
+    default Point currentPosition() { return null; }
     boolean isDemo();
     boolean isParked();
     void close();

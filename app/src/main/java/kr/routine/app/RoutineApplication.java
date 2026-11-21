@@ -5,9 +5,14 @@ import android.content.SharedPreferences;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.ZoneId;
+import kr.routine.app.invite.PrefsTripStore;
+import kr.routine.app.invite.SupabaseInviteService;
 import kr.routine.app.platform.PleosNaviGateway;
 import kr.routine.app.vehicle.VehicleSession;
+import kr.routine.core.DemoInviteService;
 import kr.routine.core.DemoNaviGateway;
+import kr.routine.core.InviteInbox;
+import kr.routine.core.InviteService;
 import kr.routine.core.NaviGateway;
 import kr.routine.core.RoutineStore;
 
@@ -16,6 +21,7 @@ public final class RoutineApplication extends Application {
     private VehicleSession session;
     private PleosNaviGateway platform;
     private boolean demo;
+    private SupabaseInviteService inviteService;
 
     public VehicleSession session() throws IOException {
         if (session == null) {
@@ -43,7 +49,15 @@ public final class RoutineApplication extends Application {
             .resolve(demoMode ? "demo-routine.data" : "live-routine.data"));
         NaviGateway gateway = demoMode ? new DemoNaviGateway() : new PleosNaviGateway(this);
         platform = gateway instanceof PleosNaviGateway live ? live : null;
-        return new VehicleSession(gateway, store, demoMode, Clock.systemUTC(), ZoneId.of("Asia/Seoul"));
+        return new VehicleSession(gateway, store, demoMode, Clock.systemUTC(), ZoneId.of("Asia/Seoul"), invites(demoMode));
+    }
+
+    /** Friend suggestions: invented and offline in 시연 mode, the invite server in 연결 시험 mode. */
+    private InviteInbox invites(boolean demoMode) {
+        long now = System.currentTimeMillis();
+        if (demoMode) return new InviteInbox(new DemoInviteService(System::currentTimeMillis), new InviteService.MemoryTripStore(), now);
+        if (inviteService == null) inviteService = SupabaseInviteService.fromResources(this);
+        return inviteService == null ? null : new InviteInbox(inviteService, new PrefsTripStore(this, "invite_trip_live"), now);
     }
 
     /** Explicit reconnect before dispatch only; the SDK's persistent journal remains authoritative. */

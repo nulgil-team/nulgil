@@ -15,9 +15,12 @@ public record VehicleUiState(
     List<DayEstimate> history, DepartureController.State departureState, ActiveRoute activeRoute,
     boolean canEdit, boolean canConfirm, boolean canRefresh, boolean canSwitchMode,
     String message, String notice, long now, ZoneId zone, int navigationRequests, List<Rule> rules,
-    List<Destination> stops, int addedStops, String stopState, String stopMessage, boolean canPlanStops, boolean canAddStop) {
+    List<Destination> stops, int addedStops, String stopState, String stopMessage, boolean canPlanStops, boolean canAddStop,
+    InviteUiState invite, Point position, List<Destination> addedStopList) {
     public VehicleUiState {
+        invite = invite == null ? InviteUiState.unavailable() : invite;
         stops = List.copyOf(stops);
+        addedStopList = addedStopList == null ? List.of() : List.copyOf(addedStopList);
         destinations = List.copyOf(destinations);
         candidates = List.copyOf(candidates);
         history = List.copyOf(history);

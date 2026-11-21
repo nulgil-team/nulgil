@@ -25,6 +25,7 @@ public final class DepartureController {
     private String stopMessage = "";
     private long stopSequence;
     private int addedStops;
+    private List<Destination> addedStopList = List.of();
     /** Stops ever dispatched while guiding. Never sent twice, whatever the result. */
     private final Set<String> issuedStops = new HashSet<>();
 
@@ -217,6 +218,7 @@ public final class DepartureController {
                     stopMessage = result.message() == null ? "들를 곳을 요청하지 않았어요." : result.message();
                 } else if (result != null && result.verified()) {
                     addedStops++;
+                    java.util.ArrayList<Destination> next = new java.util.ArrayList<>(addedStopList); next.add(stop); addedStopList = List.copyOf(next);
                     stopState = StopState.ADDED;
                     stopMessage = result.message();
                 } else {
@@ -246,6 +248,8 @@ public final class DepartureController {
     public List<Destination> stops() { return stops; }
     /** Stops verified as added while guiding. */
     public int addedStops() { return addedStops; }
+    /** Places verified as added while guiding, in the order they were added. */
+    public List<Destination> addedStopList() { return addedStopList; }
     public StopState stopState() { return stopState; }
     public String stopMessage() { return stopMessage; }
     public ActiveRoute activeRoute() { return activeRoute; }
