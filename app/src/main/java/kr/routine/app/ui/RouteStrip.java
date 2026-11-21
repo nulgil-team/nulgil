@@ -58,6 +58,9 @@ public final class RouteStrip {
         return box;
     }
 
+    /** One node's circle on its own, for lists (guide screen). */
+    public static View icon(UiKit kit, Kind kind) { return new NodeView(kit.activity, kind, kit.colors); }
+
     /** Rounded bar with a dashed line between the first and the last node. */
     private static final class Track extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);

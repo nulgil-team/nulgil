@@ -336,6 +336,10 @@ public final class VehicleScreen {
         }
         add(parent,choices,22);
     }
+    /**
+     * Screen design p8·p9: a card with the guidance result and the places in order on the left, a large map on the
+     * right. Requests and results are unchanged; only the layout follows the design.
+     */
     private void guide(LinearLayout body,LinearLayout page) {
         String phase=switch(state.departureState()) {
             case REQUESTING,CHECKING_ROUTE -> "requesting";
@@ -344,34 +348,65 @@ public final class VehicleScreen {
         };
         body.setTag(phase);
         if(state.activeRoute()==ActiveRoute.ACTIVE) arrivalBanner(body,0);
-        heading(body,switch(phase) {
-            case "requesting" -> "안내 반영을 확인하고 있어요";
-            case "verified" -> state.demo()?"모의 안내를 확인했어요":"안내 반영을 확인했어요";
+        LinearLayout layout=metrics.compact()?column():row();
+        LinearLayout card=column(); card.setPadding(32,32,32,32); card.setBackground(shape(colors.surface(),0,28));
+        LinearLayout title=row(); title.setGravity(Gravity.CENTER_VERTICAL);
+        TextView mark=text(phase.equals("verified")?"✓":phase.equals("requesting")?"…":"!",40,true,phase.equals("unconfirmed")?colors.warningText():0xff2fbf71);
+        mark.setGravity(Gravity.CENTER); mark.setBackground(shape(phase.equals("unconfirmed")?colors.warning():0x332fbf71,0,40));
+        title.addView(mark,new LinearLayout.LayoutParams(76,76));
+        TextView heading=text(switch(phase) {
+            case "requesting" -> "안내를 요청하고 있어요";
+            case "verified" -> state.demo()?"모의 안내를 시작했어요":"안내를 시작했어요";
             default -> "안내 결과를 확인하지 못했어요";
-        });
-        description(body,state.message());
-        if(state.destination()!=null) route(body);
-        if(!state.stops().isEmpty()) add(body,text("함께 보낸 들를 곳: "+names(state.stops()),34,false,colors.secondary()),12);
-        stopStatus(body);
-        if(state.activeRoute()==ActiveRoute.ACTIVE && (state.stops().size()+state.addedStops())<Model.MAX_STOPS)
-            add(body,button("들를 곳 넣기",false,state.canAddStop()&&!stopCandidates().isEmpty(),()->openStopPicker(true)),20);
-        if(state.activeRoute()==ActiveRoute.ACTIVE) inviteEntry(body,14);
-        if(state.departureState()==DepartureController.State.UNCONFIRMED)
-            banner(body,"같은 이동은 다시 요청하지 않아요. 순정 내비에서 현재 경로를 확인해 주세요.",true);
-        if(state.demo()) banner(body,"모의 응답입니다. 실제 내비에는 연결하지 않았어요.",false);
-        add(body,text("현재 경로: "+switch(state.activeRoute()) {
-            case ACTIVE -> "안내 중"; case INACTIVE -> "안내 중인 경로 없음"; case UNAVAILABLE -> "조회 불가";
-        },34,false,colors.secondary()),24);
-        if(state.departureState()==DepartureController.State.VERIFIED && state.activeRoute()==ActiveRoute.INACTIVE) {
-            banner(body,"순정 내비의 안내가 끝났어요. 다음 이동을 준비할 수 있어요.",false);
-            actionRow(page,button("다음 이동 준비",true,state.canRefresh(),actions::startNextTrip),
-                button("안내 상태 다시 확인",false,state.canRefresh(),actions::refresh));
-            return;
+        },46,true,colors.text()); heading.setAccessibilityHeading(true);
+        LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(0,WRAP,1); hp.leftMargin=20; title.addView(heading,hp);
+        add(card,title,0);
+        if(state.destination()!=null) {
+            placeLine(card,RouteStrip.Kind.ORIGIN,"현재 위치");
+            List<Destination> stops=new java.util.ArrayList<>(state.stops()); stops.addAll(state.addedStopList());
+            for(Destination stop:stops) placeLine(card,RouteStrip.Kind.STOP,stop.name());
+            placeLine(card,RouteStrip.Kind.DESTINATION,state.destination().name());
         }
-        boolean overview=!state.demo() && (state.departureState()==DepartureController.State.VERIFIED || state.activeRoute()==ActiveRoute.ACTIVE);
-        actionRow(page,overview?button("순정 지도에서 경로 전체 보기",true,state.canRefresh(),()->actions.showNativeMap(true))
-            :button("안내 상태 다시 확인",false,state.canRefresh(),actions::refresh),
-            overview?button("안내 상태 다시 확인",false,state.canRefresh(),actions::refresh):null);
+        if(state.message()!=null && !state.message().isBlank() && !phase.equals("verified")) add(card,text(state.message(),30,false,colors.secondary()),20);
+        stopStatus(card);
+        if(state.departureState()==DepartureController.State.UNCONFIRMED)
+            banner(card,"같은 이동은 다시 요청하지 않아요. 순정 내비에서 현재 경로를 확인해 주세요.",true);
+        if(state.demo()) banner(card,"모의 응답입니다. 실제 내비에는 연결하지 않았어요.",false);
+        if(state.departureState()==DepartureController.State.VERIFIED && state.activeRoute()==ActiveRoute.INACTIVE) {
+            banner(card,"순정 내비의 안내가 끝났어요. 다음 이동을 준비할 수 있어요.",false);
+            add(card,button("다음 이동 준비",true,state.canRefresh(),actions::startNextTrip),28);
+            add(card,button("안내 상태 다시 확인",false,state.canRefresh(),actions::refresh),12);
+        } else {
+            boolean overview=!state.demo() && (state.departureState()==DepartureController.State.VERIFIED || state.activeRoute()==ActiveRoute.ACTIVE);
+            if(overview) add(card,button("내비 보기",true,state.canRefresh(),()->actions.showNativeMap(true)),28);
+            if(state.activeRoute()==ActiveRoute.ACTIVE && (state.stops().size()+state.addedStops())<Model.MAX_STOPS)
+                add(card,button("경유지 추가",false,state.canAddStop()&&!stopCandidates().isEmpty(),()->openStopPicker(true)),overview?12:28);
+            if(state.activeRoute()==ActiveRoute.ACTIVE) inviteEntry(card,12);
+            add(card,button("안내 상태 다시 확인",false,state.canRefresh(),actions::refresh),12);
+        }
+        add(card,text("현재 경로: "+switch(state.activeRoute()) {
+            case ACTIVE -> "안내 중"; case INACTIVE -> "안내 중인 경로 없음"; case UNAVAILABLE -> "조회 불가";
+        },28,false,colors.secondary()),20);
+        int mapHeight=metrics.compact()?420:Math.max(560,height-260);
+        if(metrics.compact()) {
+            add(layout,card,0);
+            if(state.destination()!=null) { View map=RouteMapCard.panel(kit,routeMarkers(),night,mapHeight,null); add(layout,map,20); map.getLayoutParams().height=mapHeight; }
+        } else {
+            layout.addView(card,new LinearLayout.LayoutParams(0,WRAP,1f));
+            if(state.destination()!=null) {
+                LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,mapHeight,1.45f); lp.leftMargin=28;
+                layout.addView(RouteMapCard.panel(kit,routeMarkers(),night,mapHeight,null),lp);
+            }
+        }
+        add(body,layout,state.activeRoute()==ActiveRoute.ACTIVE && firstArrived()!=null?20:0);
+    }
+    /** A place in the guide card's list, with the same circle as the home route strip. */
+    private void placeLine(LinearLayout parent,RouteStrip.Kind kind,String label) {
+        LinearLayout line=row(); line.setGravity(Gravity.CENTER_VERTICAL);
+        line.addView(RouteStrip.icon(kit,kind),new LinearLayout.LayoutParams(64,64));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,WRAP,1); lp.leftMargin=20;
+        line.addView(text(label,38,true,colors.text()),lp);
+        add(parent,line,18);
     }
     private void picker(LinearLayout body,boolean onboarding) {
         heading(body,onboarding?"평소 가는 곳을 골라 주세요":"어디로 갈까요?");
