@@ -68,6 +68,19 @@ public final class VehicleSession implements AutoCloseable {
             connected && !closed && !working && parked && !collectionBlocked && departure.canAddStop());
     }
 
+    /**
+     * After a verified trip, once the stock navi reports no active route (arrived or ended), prepare the next trip.
+     * Unconfirmed trips stay locked; the gateway's journal still guards against a duplicate request.
+     */
+    public void startNextTrip() {
+        if (closed || working() || departure.state() != DepartureController.State.VERIFIED
+            || departure.activeRoute() != ActiveRoute.INACTIVE) return;
+        clearProposal();
+        departure = new DepartureController(gateway, store);
+        notice = "";
+        refresh();
+    }
+
     /** Plans a stop to send together with the destination. Nothing is sent until the driver confirms. */
     public void addPlannedStop(Destination value) {
         if (!snapshot().canPlanStops()) return;

@@ -16,8 +16,8 @@ android {
         applicationId 'kr.routine.app'
         minSdk 34
         targetSdk 34
-        versionCode 3
-        versionName '0.3-stops'
+        versionCode 4
+        versionName '0.4'
     }
     signingConfigs {
         if (canSign) {

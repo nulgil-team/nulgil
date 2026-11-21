@@ -159,6 +159,21 @@ public final class VehicleSessionCheck {
             s.demoScenario("unavailable");check(s.snapshot().departureState()==DepartureController.State.ROUTE_UNAVAILABLE,"unavailable scenario display state");
             check(g.startCount()==0,"all scenario preparations issue zero navigation requests");
             s.demoScenario("unconfirmed");s.confirm();s.confirm();check(g.startCount()==1 && s.snapshot().departureState()==DepartureController.State.UNCONFIRMED,"explicit failure fixture requires one user confirm");
+            s.startNextTrip();check(s.snapshot().departureState()==DepartureController.State.UNCONFIRMED,"unconfirmed trip stays locked; no next trip");
+            s.close();
+        }
+        {
+            RoutineStore store=store("next-trip"); DemoNaviGateway g=new DemoNaviGateway();
+            VehicleSession s=new VehicleSession(g,store,true,CLOCK,ZONE);s.connect();
+            s.selectDestination(DemoFixtures.OFFICE);s.confirm();
+            check(s.snapshot().departureState()==DepartureController.State.VERIFIED && g.startCount()==1,"next-trip setup: first trip verified");
+            s.startNextTrip();check(s.snapshot().departureState()==DepartureController.State.VERIFIED,"next trip waits while the navi is still guiding");
+            g.resetRoute();s.refresh();
+            check(s.snapshot().activeRoute()==ActiveRoute.INACTIVE,"refresh reads that guidance ended");
+            s.startNextTrip();
+            check(s.snapshot().departureState()!=DepartureController.State.VERIFIED && s.snapshot().destination()==null && g.startCount()==1,"next trip starts clean without sending anything");
+            s.selectDestination(DemoFixtures.OTHER);s.confirm();
+            check(s.snapshot().departureState()==DepartureController.State.VERIFIED && g.startCount()==2,"second trip can be requested once");
             s.close();
         }
         System.out.println("VehicleSessionCheck: "+checks+" assertions passed");

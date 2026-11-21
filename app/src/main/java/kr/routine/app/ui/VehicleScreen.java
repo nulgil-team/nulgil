@@ -41,6 +41,8 @@ public final class VehicleScreen {
         void removePlannedStop(Destination stop);
         /** One stop added to the route being guided, after the driver confirms in a sheet. */
         void addStopNow(Destination stop);
+        /** After a verified trip whose guidance has ended, prepare the next trip. */
+        void startNextTrip();
         void setConsent(boolean enabled);
         void registerRoutine(Destination destination,int day,int minute);
         void clearHistory();
@@ -319,6 +321,12 @@ public final class VehicleScreen {
         add(body,text("현재 경로: "+switch(state.activeRoute()) {
             case ACTIVE -> "안내 중"; case INACTIVE -> "안내 중인 경로 없음"; case UNAVAILABLE -> "조회 불가";
         },34,false,colors.secondary()),24);
+        if(state.departureState()==DepartureController.State.VERIFIED && state.activeRoute()==ActiveRoute.INACTIVE) {
+            banner(body,"순정 내비의 안내가 끝났어요. 다음 이동을 준비할 수 있어요.",false);
+            actionRow(page,button("다음 이동 준비",true,state.canRefresh(),actions::startNextTrip),
+                button("안내 상태 다시 확인",false,state.canRefresh(),actions::refresh));
+            return;
+        }
         boolean overview=!state.demo() && (state.departureState()==DepartureController.State.VERIFIED || state.activeRoute()==ActiveRoute.ACTIVE);
         actionRow(page,overview?button("순정 지도에서 경로 전체 보기",true,state.canRefresh(),()->actions.showNativeMap(true))
             :button("안내 상태 다시 확인",false,state.canRefresh(),actions::refresh),

@@ -48,8 +48,10 @@ public final class RoutineApplication extends Application {
 
     /** Explicit reconnect before dispatch only; the SDK's persistent journal remains authoritative. */
     public boolean reconnectIfNeeded() throws IOException {
+        // An unconfirmed trip locks the session, but reconnecting is still safe: the persisted journal makes the new
+        // gateway verify (or, when the navi is idle, release) the earlier request before anything can be sent again.
         if (platform == null || !platform.needsReconnect() || session == null
-                || !session.snapshot().canSwitchMode()) return false;
+                || session.snapshot().busy() || session.snapshot().collectionBlocked()) return false;
         VehicleSession next = createSession(false);
         session.setListener(null);
         session.close();

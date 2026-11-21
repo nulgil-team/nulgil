@@ -106,6 +106,7 @@ public final class RoutineActivity extends Activity implements VehicleScreen.Act
     @Override public void addPlannedStop(Destination value) { if (session != null) session.addPlannedStop(value); }
     @Override public void removePlannedStop(Destination value) { if (session != null) session.removePlannedStop(value); }
     @Override public void addStopNow(Destination value) { if (session != null) session.addStopNow(value); }
+    @Override public void startNextTrip() { if (session != null) session.startNextTrip(); }
     @Override public void setConsent(boolean value) { if (session != null) session.setConsent(value); }
     @Override public void registerRoutine(Destination value, int day, int minute) {
         if (session != null) session.registerRoutine(value, day, minute);

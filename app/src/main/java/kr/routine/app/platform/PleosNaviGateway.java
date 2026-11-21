@@ -42,7 +42,9 @@ import kotlin.Unit;
 public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListener {
     private static final String TAG = "RoutineNavi";
     private enum Phase { IDLE, CONNECT, PLACES, ESTIMATE, QUERY_ROUTE, PRECHECK, ROUTING, READBACK, RECOVERY,
-        STOP_PRECHECK, STOP_ADDING, STOP_READBACK, CLOSED }
+        STOP_PRECHECK, STOP_ADDING, STOP_READBACK, OPTION_CHANGING, CLOSED }
+    /** One changeRouteOption per issued route, after the destination is verified. */
+    private boolean optionChangeTried, optionEventSeen;
     private record PlaceMetadata(String provider, Double displayLatitude, Double displayLongitude) {}
     private final Context context;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -258,6 +260,7 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
         } catch (RuntimeException ex) { failSession("안내 요청 준비 실패: " + ex.getClass().getSimpleName()); return; }
         routeIssued = true;
         routeStartSeen = false;
+        optionChangeTried = false;
         begin(Phase.ROUTING, ROUTE_TIMEOUT_MS);
         Log.i(TAG, "route: " + (waypoints.isEmpty() ? "requestRoute" : "requestRouteWithWaypoints stops=" + waypoints.size())
             + " issued option=" + preference);
@@ -465,6 +468,7 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
             }
             // Adding a waypoint re-routes; either this or WaypointChanged starts the settled readback.
             if (phase == Phase.STOP_ADDING) { scheduleStopReadback(); return; }
+            if (phase == Phase.OPTION_CHANGING) { scheduleOptionReadback(); return; }
             if (phase != Phase.ROUTING || routeStartSeen) return;
             // Observed on Pleos Connect 2.1.0: RouteStarted is the only completion signal. Read back after it settles.
             routeStartSeen = true;
@@ -504,9 +508,20 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
     private void verifyReadback() {
         if (readDestination == null || readState == null) return;
         if (waypointsNeeded && readWaypoints == null) return;
+        if (phase == Phase.RECOVERY && PleosRouteStatus.from(readState) == ActiveRoute.INACTIVE) {
+            // The navi reports no route and no routing in progress: the earlier request can no longer take effect, so a
+            // new request cannot overwrite it. Release the lock instead of blocking the driver forever.
+            Log.i(TAG, "recovery: navi is not guiding; outstanding request released");
+            if (!journal.edit().putBoolean("requestOutstanding", false).remove("stops").commit()) {
+                failSession("이전 요청 기록을 갱신하지 못했습니다. 재발행하지 않습니다."); return;
+            }
+            finishConnection(); return;
+        }
         boolean stopsMatch = !waypointsNeeded || waypointsMatch(routeStops, readWaypoints);
+        boolean optionMatch = readState.getRouteOption() == RouteOption.valueOf(preference.name());
+        // Destination identity decides the result. Pleos Connect 2.1.0 ignores RouteInfo.routeOption and guides with
+        // its own setting (measured 2026-11-21), so an option mismatch is fixed once via changeRouteOption, not failed.
         boolean matches = target != null && PleosRouteStatus.confirmsNativeGuidance(readState)
-            && readState.getRouteOption() == RouteOption.valueOf(preference.name())
             && Objects.equals(target.id(), readDestination.getPoiId())
             && Objects.equals(target.subId(), Objects.requireNonNullElse(readDestination.getPoiSubId(), ""))
             && metersBetween(target.latitude(), target.longitude(), readDestination.getLatitude(), readDestination.getLongitude())
@@ -523,22 +538,66 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
             + " dLatE6=" + (target == null ? "na" : Math.round((readDestination.getLatitude() - target.latitude()) * 1e6))
             + " dLonE6=" + (target == null ? "na" : Math.round((readDestination.getLongitude() - target.longitude()) * 1e6))
             + " readDisplay=" + (readDestination.getDisplayLatitude() == null ? "null" : "set")
+            + " optionMatch=" + optionMatch + " optionChangeTried=" + optionChangeTried
             + " result=" + matches);
         if (!matches) {
             failSession(waypointsNeeded && !stopsMatch
                 ? "재조회한 들를 곳이 요청과 일치하지 않습니다. 결과 미확인, 재발행 차단."
-                : "재조회한 목적지·좌표·경로 옵션이 요청과 일치하지 않습니다. 결과 미확인, 재발행 차단.");
+                : "재조회한 목적지·좌표가 요청과 일치하지 않습니다. 결과 미확인, 재발행 차단.");
+            return;
+        }
+        if (!optionMatch && phase == Phase.READBACK && !optionChangeTried) {
+            // The destination is right; ask once for the chosen route option, then read back again.
+            optionChangeTried = true; optionEventSeen = false;
+            begin(Phase.OPTION_CHANGING, ROUTE_TIMEOUT_MS);
+            long token = operation;
+            // If the navi sends no event for the option change, read back anyway; the destination is already verified.
+            main.postDelayed(() -> { if (token == operation && phase == Phase.OPTION_CHANGING && !poisoned) startReadback(); }, 10000);
+            Log.i(TAG, "route: changeRouteOption " + readState.getRouteOption() + " -> " + preference);
+            try { helper.changeRouteOption(RouteOption.valueOf(preference.name())); }
+            catch (RuntimeException ex) { Log.i(TAG, "route: changeRouteOption failed " + ex.getClass().getSimpleName()); startReadback(); }
             return;
         }
         if (!journal.edit().putBoolean("requestOutstanding", false).remove("stops").commit()) {
             failSession("경로 일치는 확인했지만 요청 기록을 갱신하지 못했습니다. 재발행하지 않습니다."); return;
         }
         if (phase == Phase.RECOVERY) { finishConnection(); return; }
+        // Verified and journal cleared: this connection may serve the next trip.
+        routeIssued = false;
         Callback<RouteResult> callback = routeCallback;
         routeCallback = null; phase = Phase.IDLE;
-        callback.onSuccess(new RouteResult(true, routeStops.isEmpty()
-            ? "순정 목적지·좌표·경로 옵션 재조회 일치. 실제 지도 표시는 별도 확인이 필요합니다."
-            : "순정 목적지·들를 곳 " + routeStops.size() + "곳·경로 옵션 재조회 일치."));
+        String place = routeStops.isEmpty() ? "순정 목적지·좌표 재조회 일치." : "순정 목적지·들를 곳 " + routeStops.size() + "곳 재조회 일치.";
+        callback.onSuccess(new RouteResult(true, optionMatch
+            ? place + " 경로 성향 " + optionLabel(readState.getRouteOption()) + "."
+            : place + " 경로 성향은 순정 설정(" + optionLabel(readState.getRouteOption()) + ")으로 안내 중이에요. 순정 내비에서 바꿀 수 있어요."));
+    }
+
+    private static String optionLabel(RouteOption option) {
+        if (option == null) return "알 수 없음";
+        return switch (option.name()) {
+            case "RECOMMENDED" -> "추천 경로";
+            case "SHORT_TIME" -> "빠른 경로";
+            case "COMFORTABLE" -> "편안한 경로";
+            case "SHORT_DISTANCE" -> "최단 거리";
+            case "FREE" -> "무료 도로";
+            case "HIGHWAY" -> "고속도로 우선";
+            case "SCHOOL_ZONE" -> "어린이 보호구역 회피";
+            default -> option.name();
+        };
+    }
+
+    @Override public void onRouteOptionChanged(RouteOption value) {
+        deliver(() -> {
+            Log.i(TAG, "route event: optionChanged " + value + " phase=" + phase);
+            if (phase == Phase.OPTION_CHANGING) scheduleOptionReadback();
+        });
+    }
+
+    private void scheduleOptionReadback() {
+        if (optionEventSeen) return;
+        optionEventSeen = true;
+        long token = operation;
+        main.postDelayed(() -> { if (token == operation && phase == Phase.OPTION_CHANGING && !poisoned) startReadback(); }, ROUTE_SETTLE_MS);
     }
 
     // --- Adding one stop while guiding ---
@@ -712,7 +771,8 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
     private void routeInterrupted(String event) {
         Log.i(TAG, "route event: " + event + " phase=" + phase + " startSeen=" + routeStartSeen);
         // Adding a waypoint re-routes the guided trip; the settled readback decides, not this event.
-        if (phase == Phase.STOP_ADDING || phase == Phase.STOP_READBACK || phase == Phase.STOP_PRECHECK) return;
+        if (phase == Phase.STOP_ADDING || phase == Phase.STOP_READBACK || phase == Phase.STOP_PRECHECK
+            || phase == Phase.OPTION_CHANGING) return;
         // The stock navi ends its previous (free-drive) session right after RouteStarted. That is a transition,
         // not a failure; the settled readback decides. An end without a start keeps failing as before.
         if (phase == Phase.ROUTING && routeStartSeen) return;
