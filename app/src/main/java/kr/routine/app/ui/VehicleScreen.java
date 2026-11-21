@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Objects;
 import kr.routine.app.vehicle.VehicleUiState;
 import kr.routine.core.DepartureController;
+import kr.routine.core.Invite;
 import kr.routine.core.Model;
 import kr.routine.core.Model.*;
 
@@ -67,7 +68,7 @@ public final class VehicleScreen {
     private String builtScreen;
     private String screen="home", sheet, theme="system", pendingScenario, confirmDestination;
     private String onboardId, onboardSubId;
-    private Destination pendingStop;
+    private Destination pendingStop, pendingPlanned;
     private boolean stopPickerLive;
     private int onboardDay=3, onboardMinute=480;
     private boolean building;
@@ -210,6 +211,7 @@ public final class VehicleScreen {
         }
         if(state.destination()==null) { empty(body); return; }
         if(!state.parked()) banner(body,"정차 상태를 확인한 뒤 조작할 수 있어요",true);
+        // Screen design "오늘의 경로": reason, destination and time on the left, map on the right, route strip below.
         LinearLayout lead=metrics.compact()?column():row();
         LinearLayout main=column();
         add(main,text(state.reason(),38,false,colors.secondary()),0);
@@ -220,22 +222,36 @@ public final class VehicleScreen {
         LinearLayout.LayoutParams changeParams=new LinearLayout.LayoutParams(metrics.touch(170),WRAP); changeParams.leftMargin=22;
         destinationLine.addView(change,changeParams); add(main,destinationLine,6);
         verdict(main);
-        if(metrics.compact()) add(lead,main,0);
+        Runnable stockMap=state.canRefresh()&&!state.demo()?()->actions.showNativeMap(false):null;
+        View map=RouteMapCard.panel(kit,routeMarkers(),night,metrics.compact()?360:420,stockMap);
+        map.setContentDescription(map.getContentDescription()+(stockMap==null?"":", 누르면 순정 지도에서 봐요"));
+        if(metrics.compact()) { add(lead,main,0); add(lead,map,20); }
         else {
-            lead.addView(main,new LinearLayout.LayoutParams(0,WRAP,2f));
-            LinearLayout summary=column(); summary.setPadding(28,28,28,28); summary.setBackground(shape(colors.surface(),0,26));
-            add(summary,text("경로 요약",34,true,colors.text()),0);
-            add(summary,text("현재 위치 → 목적지",34,false,colors.secondary()),20);
-            add(summary,text("아래 지도는 장소 위치예요. 실제 도로 경로는 순정 지도에서 볼 수 있어요.",30,false,colors.secondary()),24);
-            add(summary,button("순정 지도에서 보기",false,state.canRefresh()&&!state.demo(),()->actions.showNativeMap(false)),24);
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,WRAP,.8f); lp.leftMargin=40; lead.addView(summary,lp);
+            lead.addView(main,new LinearLayout.LayoutParams(0,WRAP,1.25f));
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,metrics.compact()?360:420,1f); lp.leftMargin=32; lead.addView(map,lp);
         }
         // Route preference lives in settings only, matching the navi-style home of the web spec.
-        add(body,lead,0); route(body); stops(body);
+        add(body,lead,0);
+        add(body,RouteStrip.build(kit,stripNodes()),32);
         actionRow(page,button(state.busy()?"확인 중":"안내 시작",true,state.canConfirm(),()-> {
             confirmDestination=destinationKey(state.destination()); showSheet("confirm");
         }),button("이번엔 넘기기",false,state.canEdit() && !state.busy(),actions::dismiss));
     }
+    /** Current position, planned stops (or the add button), destination: the strip under the home map. */
+    private List<RouteStrip.Node> stripNodes() {
+        List<RouteStrip.Node> nodes=new java.util.ArrayList<>();
+        int now=minuteOfDay(state.now());
+        nodes.add(new RouteStrip.Node(RouteStrip.Kind.ORIGIN,"현재 위치",clock(now)+" 출발",null));
+        for(Destination stop:state.stops())
+            nodes.add(new RouteStrip.Node(RouteStrip.Kind.STOP,stop.name(),Invite.isInviteStop(stop)?"친구가 보낸 곳":"경유지",
+                state.canPlanStops()?()->{pendingPlanned=stop; showSheet("planned");}:null));
+        if(state.stops().size()<Model.MAX_STOPS)
+            nodes.add(new RouteStrip.Node(RouteStrip.Kind.ADD,"경유지 추가","",state.canPlanStops()?()->showSheet("addStop"):null));
+        String arrival=state.minutes()==null?"":clock(now+state.minutes())+" 도착 예정";
+        nodes.add(new RouteStrip.Node(RouteStrip.Kind.DESTINATION,state.destination().name(),arrival,null));
+        return nodes;
+    }
+    private int minuteOfDay(long millis) { LocalDateTime t=Instant.ofEpochMilli(millis).atZone(state.zone()).toLocalDateTime(); return t.getHour()*60+t.getMinute(); }
     private void empty(LinearLayout body) {
         if(state.holdType()==HoldType.TIE && !state.candidates().isEmpty()) {
             heading(body,"오늘은 어디로 갈까요?"); description(body,"이 시간대의 후보가 여러 곳이에요. 직접 골라 주세요.");
@@ -255,7 +271,7 @@ public final class VehicleScreen {
         if(state.minutes()!=null) {
             LinearLayout verdict=metrics.compact()?column():row();
             verdict.setGravity(Gravity.BOTTOM);
-            TextView eta=text(state.minutes()+"분",metrics.compact()?104:148,true,colors.text());
+            TextView eta=text(state.minutes()+"분",metrics.compact()?104:132,true,colors.text());
             LinearLayout details=column();
             if(metrics.compact()) add(verdict,eta,0); else verdict.addView(eta,new LinearLayout.LayoutParams(WRAP,WRAP));
             String message=switch(state.trafficKind()) {
@@ -263,7 +279,7 @@ public final class VehicleScreen {
                 case "NO_COMPARE" -> "평소 시간은 기록을 모으는 중이에요";
                 default -> "평소와 비슷해요";
             };
-            add(details,text(message,metrics.compact()?40:50,true,state.trafficKind().equals("LATE")?colors.warningText():colors.text()),4);
+            add(details,text(message,metrics.compact()?40:44,true,state.trafficKind().equals("LATE")?colors.warningText():colors.text()),4);
             LocalDateTime arrival=Instant.ofEpochMilli(state.now()).atZone(state.zone()).toLocalDateTime().plusMinutes(state.minutes());
             add(details,text(clock(arrival.getHour()*60+arrival.getMinute())+" 도착 예정",36,false,colors.secondary()),6);
             if(metrics.compact()) add(verdict,details,8); else {
@@ -486,6 +502,21 @@ public final class VehicleScreen {
                     String choice=pendingScenario; sheet=null; screen="home"; actions.demoScenario(choice);
                 }),28);
             }
+            case "addStop" -> {
+                heading(card,"경유지를 어디서 고를까요?");
+                description(card,"가는 길에 최대 "+Model.MAX_STOPS+"곳까지 들를 수 있어요. 안내를 시작할 때 목적지와 함께 한 번 요청해요.");
+                add(card,button("즐겨찾기·최근 목적지에서 고르기",true,state.canPlanStops()&&!stopCandidates().isEmpty(),()->{sheet=null;openStopPicker(false);}),28);
+                if(state.invite().available())
+                    add(card,button(InvitePanel.entryLabel(state.invite()),state.invite().waiting()>0,true,()->{sheet=null;navigate("invite");}),14);
+            }
+            case "planned" -> {
+                heading(card,pendingPlanned==null?"경유지":pendingPlanned.name());
+                description(card,pendingPlanned==null?"":pendingPlanned.address());
+                description(card,"안내를 시작할 때 목적지와 함께 보낼 경유지예요.");
+                add(card,button("경유지에서 빼기",true,pendingPlanned!=null&&state.canPlanStops(),()-> {
+                    Destination chosen=pendingPlanned; pendingPlanned=null; sheet=null; actions.removePlannedStop(chosen);
+                }),28);
+            }
             case "stop" -> {
                 heading(card,"이 곳을 경로에 넣을까요?");
                 description(card,pendingStop==null?"장소를 다시 골라 주세요":pendingStop.name()+" · "+pendingStop.address());
@@ -497,25 +528,7 @@ public final class VehicleScreen {
             }
             default -> description(card,"현재 상태를 다시 확인해 주세요");
         }
-        add(card,button("닫기",false,true,()->{sheet=null;pendingStop=null;rebuild();}),16);
-    }
-    /** Planned stops on the home screen: up to two, added from the stock places, removable until confirm. */
-    private void stops(LinearLayout parent) {
-        LinearLayout box=column(); box.setPadding(28,24,28,24); box.setBackground(shape(colors.surface(),0,26));
-        add(box,text(state.stops().isEmpty()?"들를 곳":"들를 곳 "+state.stops().size()+"/"+Model.MAX_STOPS,34,true,colors.text()),0);
-        if(state.stops().isEmpty()) add(box,text("가는 길에 들를 곳을 순정 즐겨찾기·최근 목적지"+(state.invite().available()?"나 친구가 보낸 곳":"")+"에서 넣을 수 있어요. 최대 "+Model.MAX_STOPS+"곳.",30,false,colors.secondary()),10);
-        for(int i=0;i<state.stops().size();i++) {
-            Destination stop=state.stops().get(i);
-            LinearLayout line=row(); line.setGravity(Gravity.CENTER_VERTICAL);
-            line.addView(text((i+1)+". "+stop.name(),36,true,colors.text()),new LinearLayout.LayoutParams(0,WRAP,1));
-            Button remove=button("빼기",false,state.canPlanStops(),()->actions.removePlannedStop(stop));
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(metrics.touch(150),WRAP); lp.leftMargin=16; line.addView(remove,lp);
-            add(box,line,12);
-        }
-        if(state.stops().size()<Model.MAX_STOPS)
-            add(box,button("들를 곳 추가",false,state.canPlanStops()&&!stopCandidates().isEmpty(),()->openStopPicker(false)),16);
-        inviteEntry(box,12);
-        add(parent,box,24);
+        add(card,button("닫기",false,true,()->{sheet=null;pendingStop=null;pendingPlanned=null;rebuild();}),16);
     }
     /** Entry to the friend stop screen, with the number of places waiting. Hidden when the build has no invites. */
     private void inviteEntry(LinearLayout parent,int top) {

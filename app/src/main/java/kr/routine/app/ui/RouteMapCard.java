@@ -29,6 +29,14 @@ public final class RouteMapCard {
         return new MapMath.Marker(place.latitude(), place.longitude(), MapMath.Kind.FRIEND, friendLetter(index), place.name());
     }
 
+    /** Map only, for the home screen's right column (the route strip below it names the places). */
+    public static android.view.View panel(UiKit kit, List<MapMath.Marker> markers, boolean night, int height, Runnable onTap) {
+        RouteMapView map = new RouteMapView(kit.activity, markers, kit.colors, night, kit.typeface);
+        map.setMinimumHeight(height);
+        if (onTap != null) { map.setClickable(true); map.setOnClickListener(v -> onTap.run()); }
+        return map;
+    }
+
     public static LinearLayout build(UiKit kit, List<MapMath.Marker> markers, boolean night) {
         LinearLayout box = kit.column();
         int height = kit.metrics.compact() ? 380 : 540;
@@ -47,7 +55,7 @@ public final class RouteMapCard {
         kit.add(box, kit.text(legend.toString(), 32, true, kit.colors.text()), 12);
         boolean hasOrigin = markers.stream().anyMatch(m -> m.kind() == MapMath.Kind.ORIGIN);
         kit.add(box, kit.text((hasOrigin ? "" : "현재 위치는 교통 정보를 확인하면 표시돼요. ")
-            + "점선은 들르는 순서예요. 실제 도로 경로는 순정 내비가 계산해요.", 28, false, kit.colors.secondary()), 6);
+            + "지도의 경로는 참고용이에요. 실제 안내 경로는 순정 내비가 계산해요.", 28, false, kit.colors.secondary()), 6);
         return box;
     }
 }
