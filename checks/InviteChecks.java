@@ -63,13 +63,17 @@ public final class InviteChecks {
         InviteInbox inbox = opened(service);
         long t = NOW.get();
         inbox.poll(t, true, NO_CHANGE);
-        inbox.poll(t + 1000, false, NO_CHANGE);
-        expect(service.lists == 1, "polling waits " + InviteInbox.POLL_MS + " ms between reads");
-        inbox.poll(t + InviteInbox.POLL_MS, false, NO_CHANGE);
+        inbox.poll(t + InviteInbox.WATCH_POLL_MS, false, NO_CHANGE);
+        expect(service.lists == 1, "off the friend screen, reads wait " + InviteInbox.IDLE_POLL_MS + " ms");
+        inbox.poll(t + InviteInbox.IDLE_POLL_MS, false, NO_CHANGE);
         expect(service.lists == 2 && inbox.pending().size() == 2, "the next read happens after the interval and shows pending places");
+        inbox.setWatching(true);
+        inbox.poll(t + InviteInbox.IDLE_POLL_MS + 1000, false, NO_CHANGE);
+        inbox.poll(t + InviteInbox.IDLE_POLL_MS + InviteInbox.WATCH_POLL_MS, false, NO_CHANGE);
+        expect(service.lists == 3, "on the friend screen, reads come every " + InviteInbox.WATCH_POLL_MS + " ms");
         int[] redraws = {0};
-        inbox.poll(t + InviteInbox.POLL_MS + 1, true, () -> redraws[0]++);
-        expect(service.lists == 3, "a forced read (driver pressed 새로 확인) skips the wait");
+        inbox.poll(t + InviteInbox.IDLE_POLL_MS + InviteInbox.WATCH_POLL_MS + 1, true, () -> redraws[0]++);
+        expect(service.lists == 4, "a forced read (driver pressed 새로 확인) skips the wait");
         expect(redraws[0] == 0, "a read with nothing new does not redraw the screen");
     }
 
@@ -82,7 +86,7 @@ public final class InviteChecks {
             "the decision shows at once, before the server echoes it");
         inbox.setStatus("demo-1", Status.ADDED, NO_CHANGE);
         expect(service.writes().equals(List.of("demo-1=REQUESTED", "demo-1=ADDED")), "status writes reach the server in order");
-        inbox.poll(NOW.get() + InviteInbox.POLL_MS, false, NO_CHANGE);
+        inbox.poll(NOW.get() + InviteInbox.IDLE_POLL_MS, false, NO_CHANGE);
         expect(inbox.handled().size() == 1 && inbox.status(inbox.handled().get(0)) == Status.ADDED, "decided places move to the handled list");
         inbox.setStatus("missing", Status.ADDED, NO_CHANGE);
         expect(service.writes().size() == 2, "unknown suggestions are never written");

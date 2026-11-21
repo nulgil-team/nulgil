@@ -15,7 +15,10 @@ import kr.routine.core.NaviGateway.Callback;
  * suggestion becomes a stop and reports the outcome back here, which forwards it to the friend.
  */
 public final class InviteInbox {
-    public static final long POLL_MS = 10_000;
+    /** Read interval while the driver has the friend screen open. */
+    public static final long WATCH_POLL_MS = 15_000;
+    /** Read interval on other screens; suggestions are chosen while parked, so a minute late costs nothing. */
+    public static final long IDLE_POLL_MS = 60_000;
     private static final int HANDLED_SHOWN = 5;
 
     private final InviteService service;
@@ -25,7 +28,7 @@ public final class InviteInbox {
     /** Statuses the car set; shown at once and kept until the server echoes them. */
     private final Map<String, Status> local = new HashMap<>();
     private final ArrayDeque<Runnable> writes = new ArrayDeque<>();
-    private boolean opening, polling, writing;
+    private boolean opening, polling, writing, watching;
     private long lastPoll = Long.MIN_VALUE / 2, generation;
     private String message = "";
 
@@ -60,11 +63,15 @@ public final class InviteInbox {
         });
     }
 
-    /** Reads suggestions at most every POLL_MS unless forced. Ends an invite the server closed or that expired. */
+    /** True while the friend screen is shown; reads then come every WATCH_POLL_MS instead of IDLE_POLL_MS. */
+    public void setWatching(boolean value) { watching = value; }
+    public long pollInterval() { return watching ? WATCH_POLL_MS : IDLE_POLL_MS; }
+
+    /** Reads suggestions at most every pollInterval() unless forced. Ends an invite the server closed or that expired. */
     public void poll(long now, boolean force, Runnable changed) {
         if (trip == null || polling) return;
         if (!trip.open(now)) { end("초대 시간이 끝났어요."); changed.run(); return; }
-        if (!force && now - lastPoll < POLL_MS) return;
+        if (!force && now - lastPoll < pollInterval()) return;
         polling = true; lastPoll = now;
         long gen = generation;
         Trip asked = trip;

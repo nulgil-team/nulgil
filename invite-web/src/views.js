@@ -75,7 +75,7 @@ const STATUS = {
   PENDING: ["운전자가 확인하기를 기다리고 있어요", "badge", "차를 세우면 확인해요."],
   REQUESTED: ["경로에 넣고 있어요", "badge badge-warning", "순정 내비가 경로를 다시 찾는 중이에요."],
   ADDED: ["경로에 들어갔어요", "badge badge-success", "가는 길에 들를게요."],
-  UNCONFIRMED: ["들어갔는지 확인하는 중이에요", "badge badge-warning", "운전자가 내비에서 직접 확인해요."],
+  UNCONFIRMED: ["경로에 넣었지만 확인은 못 했어요", "badge badge-warning", "운전자가 내비에서 직접 확인해요."],
   FAILED: ["이번에는 넣지 못했어요", "badge badge-danger", "들를 곳이 이미 가득 찼을 수 있어요."],
   DISMISSED: ["이번에는 넘겼어요", "badge", "다음에 다시 보내 주세요."],
 };

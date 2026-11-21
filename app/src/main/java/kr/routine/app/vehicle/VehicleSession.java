@@ -246,6 +246,9 @@ public final class VehicleSession implements AutoCloseable {
         else refresh();
     }
 
+    /** The friend screen is shown: read suggestions more often. Other screens read once a minute. */
+    public void setInviteWatching(boolean value) { if (invites != null) invites.setWatching(value); }
+
     /** Only redraw when a gate or estimate validity changed, not once every clock tick. */
     public void tick() {
         if (closed) return;

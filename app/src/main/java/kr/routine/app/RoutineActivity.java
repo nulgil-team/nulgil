@@ -82,7 +82,7 @@ public final class RoutineActivity extends Activity implements VehicleScreen.Act
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             if (!visible) return;
-            if (session != null) session.tick();
+            if (session != null) { session.setInviteWatching("invite".equals(screen.screenKey())); session.tick(); }
             ui.postDelayed(this, 1000);
         }
     };

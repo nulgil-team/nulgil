@@ -4,7 +4,7 @@ import * as api from "./api.js";
 import { searchPlaces } from "./places.js";
 import { showPlace } from "./map.js";
 import * as views from "./views.js";
-import { STATUS_POLL_MS } from "./config.js";
+import { STATUS_POLL_FAST_MS, STATUS_POLL_FAST_FOR_MS, STATUS_POLL_SLOW_MS, FINAL_STATUSES } from "./config.js";
 
 const root = document.getElementById("app");
 const storage = {
@@ -14,9 +14,10 @@ const storage = {
 
 const state = {
   screen: "loading", code: "", sender: storage.get("nulgil.sender") ?? "", query: "", results: [],
-  place: null, note: "", sentId: null, status: null, error: "", busy: false,
+  place: null, note: "", sentId: null, sentAt: 0, status: null, error: "", busy: false,
 };
 let pollTimer = null;
+let checking = false;
 
 function render() {
   root.innerHTML = views[state.screen]({
@@ -60,7 +61,7 @@ async function send() {
   try {
     const id = await api.submitSuggestion(state.code, { sender, place: state.place, note: state.note.trim() });
     state.busy = false;
-    go("sent", { sentId: id, status: "PENDING" });
+    go("sent", { sentId: id, status: "PENDING", sentAt: Date.now() });
     poll();
   } catch (e) {
     state.busy = false;
@@ -68,17 +69,29 @@ async function send() {
   }
 }
 
-function poll() {
+// Checks the driver's decision: every few seconds just after sending, then every half minute.
+// Stops at a final status and pauses while the tab is hidden; coming back checks at once.
+function poll(delay) {
   clearTimeout(pollTimer);
-  if (state.screen !== "sent" || !state.sentId) return;
+  pollTimer = null;
+  if (checking || state.screen !== "sent" || !state.sentId || FINAL_STATUSES.includes(state.status)) return;
+  if (document.hidden) return;
+  const wait = delay ?? (Date.now() - state.sentAt < STATUS_POLL_FAST_FOR_MS ? STATUS_POLL_FAST_MS : STATUS_POLL_SLOW_MS);
   pollTimer = setTimeout(async () => {
+    pollTimer = null;
+    checking = true;
     try {
       const status = await api.getSuggestionStatus(state.code, state.sentId);
       if (status && status !== state.status && state.screen === "sent") go("sent", { status });
     } catch { /* keep the last known status and try again */ }
-    if (!["ADDED", "FAILED", "DISMISSED"].includes(state.status)) poll();
-  }, STATUS_POLL_MS);
+    checking = false;
+    poll();
+  }, wait);
 }
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { clearTimeout(pollTimer); pollTimer = null; } else poll(0);
+});
 
 root.addEventListener("click", (event) => {
   const target = event.target.closest("[data-action]");
