@@ -23,6 +23,7 @@ public final class InviteChecks {
         checkWriteFailureKeepsDecision();
         checkServerClosedEndsInvite();
         checkCloseIgnoresLateCallbacks();
+        checkServerBusy();
         checkInviteStopThroughDeparture();
         System.out.println("RESULT " + passed + " invite assertions passed");
     }
@@ -136,6 +137,18 @@ public final class InviteChecks {
         inbox.close(NO_CHANGE);
         service.pendingList.onSuccess(List.of(new Suggestion("x", "a", "b", "", 37, 127, "", Status.PENDING, 1)));
         expect(inbox.pending().isEmpty() && !inbox.isOpen(NOW.get()), "a late answer after closing changes nothing");
+    }
+
+    private static void checkServerBusy() {
+        DeferredService service = new DeferredService();
+        InviteInbox inbox = new InviteInbox(service, new InviteService.MemoryTripStore(), NOW.get());
+        inbox.open(NOW.get(), NO_CHANGE);
+        service.pendingTrip.onFailure("TOO_BUSY");
+        expect(!inbox.isOpen(NOW.get()) && !inbox.opening() && inbox.message().contains("잠시 뒤"),
+            "a server at its invite limit asks the driver to try later, not to check the internet");
+        inbox.open(NOW.get(), NO_CHANGE);
+        service.pendingTrip.onFailure("network down");
+        expect(inbox.message().contains("인터넷"), "other failures still point at the connection");
     }
 
     private static void checkInviteStopThroughDeparture() throws Exception {

@@ -78,6 +78,7 @@ const STATUS = {
   UNCONFIRMED: ["경로에 넣었지만 확인은 못 했어요", "badge badge-warning", "운전자가 내비에서 직접 확인해요."],
   FAILED: ["이번에는 넣지 못했어요", "badge badge-danger", "들를 곳이 이미 가득 찼을 수 있어요."],
   DISMISSED: ["이번에는 넘겼어요", "badge", "다음에 다시 보내 주세요."],
+  EXPIRED: ["초대가 끝났어요", "badge", "운전자가 확인하기 전에 초대가 끝났거나 시간이 지났어요."],
 };
 
 export function sent({ place, status }) {

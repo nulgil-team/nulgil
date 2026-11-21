@@ -58,7 +58,11 @@ public final class InviteInbox {
             }
             @Override public void onFailure(String error) {
                 if (gen != generation) return;
-                opening = false; message = "초대 코드를 만들지 못했어요. 인터넷 연결을 확인해 주세요."; changed.run();
+                opening = false;
+                message = error != null && error.startsWith("TOO_BUSY")
+                    ? "지금은 초대 코드를 만들 수 없어요. 잠시 뒤 다시 시도해 주세요."
+                    : "초대 코드를 만들지 못했어요. 인터넷 연결을 확인해 주세요.";
+                changed.run();
             }
         });
     }

@@ -9,4 +9,4 @@ export const STATUS_POLL_FAST_MS = 5000;
 export const STATUS_POLL_FAST_FOR_MS = 2 * 60 * 1000;
 export const STATUS_POLL_SLOW_MS = 30000;
 // The car never changes these again, so checking stops.
-export const FINAL_STATUSES = ["ADDED", "UNCONFIRMED", "FAILED", "DISMISSED"];
+export const FINAL_STATUSES = ["ADDED", "UNCONFIRMED", "FAILED", "DISMISSED", "EXPIRED"];

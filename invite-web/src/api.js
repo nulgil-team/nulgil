@@ -28,6 +28,7 @@ function messageFor(code) {
   switch (code) {
     case "TRIP_CLOSED": return "이 초대는 끝났거나 시간이 지났어요.";
     case "TOO_MANY_SUGGESTIONS": return "이 이동에는 더 보낼 수 없어요. (최대 10곳)";
+    case "TOO_FAST": return "한꺼번에 너무 많이 보냈어요. 1분 뒤 다시 보내 주세요.";
     default: return "잠시 뒤 다시 시도해 주세요.";
   }
 }
@@ -47,7 +48,10 @@ export async function submitSuggestion(code, { sender, place, note }) {
   return row.id;
 }
 
-/** PENDING | REQUESTED | ADDED | UNCONFIRMED | FAILED | DISMISSED, or null when unknown. */
+/**
+ * PENDING | REQUESTED | ADDED | UNCONFIRMED | FAILED | DISMISSED | EXPIRED, or null when the server no longer
+ * has it (ended invites are deleted a day later).
+ */
 export async function getSuggestionStatus(code, id) {
   const [row] = await rpc("get_invite_suggestion", { p_code: code, p_id: id });
   return row?.status ?? null;

@@ -81,8 +81,9 @@ function poll(delay) {
     pollTimer = null;
     checking = true;
     try {
-      const status = await api.getSuggestionStatus(state.code, state.sentId);
-      if (status && status !== state.status && state.screen === "sent") go("sent", { status });
+      // A missing suggestion means the invite ended and was cleaned up.
+      const status = (await api.getSuggestionStatus(state.code, state.sentId)) ?? "EXPIRED";
+      if (status !== state.status && state.screen === "sent") go("sent", { status });
     } catch { /* keep the last known status and try again */ }
     checking = false;
     poll();
