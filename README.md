@@ -1,14 +1,43 @@
 # 늘길 · 타면 이미 경로가 돼 있는 차
 
-현대자동차그룹 차량용 앱 개발 공모전(Pleos Connect) 출품작의 프로토타입 저장소입니다. 늘 가는 곳의 경로를 시간대별로 준비하고, 평소보다 늦는 날만 출발 전에 짚어 주며, 순정 내비 위에서 동작하는 차량용 앱입니다.
+**한 줄 소개:** 늘 가는 곳의 경로를 시간대별로 준비해 두고, 평소보다 늦는 날만 출발 전에 알려 주며, 가는 길에 들를 곳까지 순정 내비 경로 하나로 묶어 주는 Pleos Connect 차량용 앱입니다.
+
+현대자동차그룹 차량용 앱 개발 공모전(Pleos Connect) 출품작 저장소입니다. 앱은 순정 내비(NaviHelper SDK) 위에서 동작하며, 경로 계산·안내·지도 표시는 순정 내비가 맡고 늘길은 목적지·들를 곳·출발 판단을 준비합니다.
+
+| 항목 | 값 |
+|---|---|
+| 앱 이름 | 늘길 (패키지 `kr.routine.app`) |
+| 대상 플랫폼 | Pleos Connect (Android Automotive OS, API 34) |
+| 개발·시험 에뮬레이터 | **Pleos Connect Emulator v2.1.0** (`RELEASE.release_connect_v2.1.0`, Android 14 / API 34, x86_64) |
+| 화면 규격 | **2560×1440, 160dpi, 가로**. 앱 창 1681×1210 기준, 분할 창 834×1210 대응 |
+| 사용 SDK | NaviHelper 3.0.5 (에뮬레이터의 내비 서비스 3.0.4), Android Car API(기어·속도·UX 제한) |
+| APK | `apk/nulgil-release.apk` |
 
 ## 바로 실행 (APK)
 
 - 파일: `apk/nulgil-release.apk` (패키지 `kr.routine.app`, minSdk 34, release 서명). 서명 키는 저장소에 없으므로 이 APK는 저장소만으로 다시 만들 수 없습니다. 저장소에서는 아래 debug 빌드를 사용합니다.
-- 대상: Pleos Connect 에뮬레이터(Android Automotive)
-- 설치: `adb install -r apk/nulgil-release.apk`
+- 이 APK는 2026-11-10 빌드입니다. 2026-11-21 순정 내비 실연결 시험 뒤의 수정(즐겨찾기 표시, 안내 결과 확인, 예상 시간, 순정 지도 보기, 들를 곳)은 [debug 빌드](#빌드-환경)에 들어 있습니다.
+- 대상: Pleos Connect 에뮬레이터(Android Automotive). 설정은 [테스트 환경](#테스트-환경과-필요한-설정)을 따릅니다.
+- 설치: `adb install -r -g apk/nulgil-release.apk` (`-g`는 차량 속도 권한 `CAR_SPEED`를 함께 허용합니다)
 - 처음 실행하면 **시연 모드**(모의 목적지·교통·안내 응답)로 열립니다. `평소 장소 등록`에서 장소와 요일·출발 시간을 고르면 바로 오늘의 경로가 준비됩니다.
 - `내 일상 > 연결 시험 > 순정 내비 연결 시험`으로 순정 내비(NaviHelper)와 차량 속성을 쓰는 실제 연결 모드로 바꿀 수 있습니다. 이 모드는 차량의 기어 P·속도 0을 확인할 때만 경로 요청을 허용합니다.
+
+## 테스트 환경과 필요한 설정
+
+시험한 환경: Windows 11, NVIDIA RTX 4070 Ti(외장 GPU), Android Studio 2026.2.2, Android Emulator 37.3, JDK 21. Pleos 공식 문서는 이 에뮬레이터에 외장 그래픽카드를 요구합니다(최소 RTX 3060 Laptop 6GB급).
+
+1. **에뮬레이터 이미지 설치**: Android Studio `Tools > SDK Manager > SDK Update Sites`에 Pleos Connect System Image(`https://nexus-playground.pleos.ai/repository/raw-releases/connect-avd/2.x/crp-sys-img.xml`)를 추가하고, `SDK Platforms`의 API 34 아래 Pleos Connect system image를 설치합니다([공식 안내](https://document.pleos.ai/docs/connect/guide/getting-started/application-development/setup-connect-sdk-emulator)).
+2. **AVD 만들기**: `Device Manager > Create device > Automotive > Pleos Connect v2.1.0`, 시스템 이미지 API 34 Pleos Connect v2.1.0. 고급 설정에서 **Default boot: Cold**(Quick boot이면 차량 속성 VHAL을 쓸 수 없음), **RAM 4GB**, **Graphics: Hardware**.
+3. **실행과 설치**: 에뮬레이터를 Cold boot로 켠 뒤 `adb install -r -g <APK>`.
+4. **실제 연결 모드에 필요한 것**
+   - 에뮬레이터의 인터넷 연결(순정 내비가 장소 검색·경로 계산을 서버에서 합니다).
+   - 순정 내비 **즐겨찾기 또는 최근 목적지**가 있어야 합니다. 늘길은 이 목록에서만 목적지와 들를 곳을 고릅니다. 순정 내비에서 장소를 검색하고 ☆를 눌러 즐겨찾기에 넣어 두세요.
+   - 기어 P·속도 0이어야 안내 요청과 들를 곳 추가가 열립니다. 기어 등 차량 상태는 Pleos Connect Virtual Console(`adb forward tcp:8088 tcp:8088` → `http://127.0.0.1:8088/`)에서 바꿀 수 있습니다.
+5. **에뮬레이터에서 알려진 차이**
+   - 순정 지도는 바탕 지도를 그리지 않습니다(개발 서버의 빈 지도 스타일). 장소 검색, 경로 계산, 경로선, 회전 안내는 동작합니다.
+   - 에뮬레이터 GPS 문장의 체크섬이 맞지 않아 순정 지도가 위치를 받지 못하고 기본 위치(성남 수정구)를 현재 위치로 씁니다.
+
+실연결 시험의 상세 결과와 실측값은 [docs/05_에뮬레이터_실연결시험_20261121.md](docs/05_에뮬레이터_실연결시험_20261121.md)에 있습니다.
 
 ## 구성
 
@@ -30,6 +59,7 @@
 - PowerShell 스크립트는 `JAVA_HOME`의 JDK를 쓰고, 없으면 `C:\Program Files\Java\jdk-22`를 찾습니다. 다른 JDK는 `-JdkPath <JDK 폴더>`로 지정합니다.
 - Android SDK Platform 35, 인터넷 연결(google, mavenCentral, `https://nexus-playground.pleos.ai/repository/maven-releases/`)
 - Android: `gradlew.bat :app:assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk`
+- Android Studio에서 빌드할 때는 `Settings > Build Tools > Gradle > Gradle JDK`를 17~22로 지정합니다(Android Studio 2026.2에 들어 있는 JBR 25로는 Gradle 8.9가 실행되지 않습니다).
 
 ## 웹 프로토타입
 
