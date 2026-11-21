@@ -170,7 +170,7 @@ public final class DepartureController {
             }
 
             @Override public void onFailure(String error) {
-                onSuccess(new RouteResult(false, "안내 결과 미확인: " + error + ". 재요청하지 않고 순정 내비를 확인하세요."));
+                onSuccess(new RouteResult(false, "안내 결과 미확인: " + reason(error) + ". 재요청하지 않고 순정 내비를 확인하세요."));
             }
         };
         try { gateway.start(submitted, submittedStops, submittedPreference, callback); }
@@ -228,7 +228,7 @@ public final class DepartureController {
                 changed.run();
             }
             @Override public void onFailure(String error) {
-                onSuccess(new RouteResult(false, "들를 곳 결과 미확인: " + error + ". 다시 요청하지 않고 순정 내비를 확인하세요."));
+                onSuccess(new RouteResult(false, "들를 곳 결과 미확인: " + reason(error) + ". 다시 요청하지 않고 순정 내비를 확인하세요."));
             }
         };
         issuedStops.add(key);
@@ -255,4 +255,10 @@ public final class DepartureController {
     public ActiveRoute activeRoute() { return activeRoute; }
     public State state() { return state; }
     public String message() { return message; }
+
+    /** Gateway errors are sentences that may already end with a period; strip it so messages never show "..". */
+    static String reason(String error) {
+        if (error == null || error.isBlank()) return "알 수 없는 오류";
+        return error.strip().replaceAll("[.\\s]+$", "");
+    }
 }

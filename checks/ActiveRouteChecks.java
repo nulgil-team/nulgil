@@ -78,6 +78,8 @@ public final class ActiveRouteChecks {
         confirm(c);
         expect(c.state() == State.UNCONFIRMED && c.activeRoute() == ActiveRoute.UNAVAILABLE
             && gateway.startCount() == 1, "lost response after actual dispatch is unconfirmed");
+        expect(c.message().contains("모의 응답 시간 초과. 재요청") && !c.message().contains(".."),
+            "an error that already ends with a period is not followed by another one");
         c.refreshActiveRoute(NO_CHANGE);
         confirm(c);
         expect(c.state() == State.UNCONFIRMED && c.activeRoute() == ActiveRoute.INACTIVE && gateway.startCount() == 1,

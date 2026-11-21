@@ -44,7 +44,7 @@ public final class DemoNaviGateway implements NaviGateway {
         if(routeStops.size()>=Model.MAX_STOPS){callback.onSuccess(RouteResult.notSent(ActiveRoute.ACTIVE,"이미 들를 곳이 "+Model.MAX_STOPS+"곳이에요."));return;}
         for(Destination existing:routeStops) if(Model.samePlace(existing,stop)){callback.onSuccess(RouteResult.notSent(ActiveRoute.ACTIVE,"이미 경로에 있는 곳이에요."));return;}
         stopRequests++;
-        if(failNext){failNext=false;callback.onFailure("모의 응답 시간 초과");return;}
+        if(failNext){failNext=false;callback.onFailure("모의 응답 시간 초과.");return;}
         java.util.ArrayList<Destination> next=new java.util.ArrayList<>(routeStops); next.add(stop); routeStops=List.copyOf(next);
         callback.onSuccess(new RouteResult(true,"모의 들를 곳 추가 확인: "+stop.name()+". 순정 내비에는 연결하지 않았습니다."));
     }
