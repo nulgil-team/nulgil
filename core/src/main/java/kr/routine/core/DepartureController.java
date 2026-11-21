@@ -1,7 +1,10 @@
 package kr.routine.core;
 
 import java.io.IOException;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import kr.routine.core.Model.*;
 
 public final class DepartureController {
@@ -16,6 +19,14 @@ public final class DepartureController {
     private ActiveRoute activeRoute = ActiveRoute.UNAVAILABLE;
     private boolean hasReading, querying, issued;
     private long proposalRevision, querySequence, attemptSequence;
+    private List<Destination> stops = List.of();
+    private List<Destination> sentStops = List.of();
+    private StopState stopState = StopState.NONE;
+    private String stopMessage = "";
+    private long stopSequence;
+    private int addedStops;
+    /** Stops ever dispatched while guiding. Never sent twice, whatever the result. */
+    private final Set<String> issuedStops = new HashSet<>();
 
     public DepartureController(NaviGateway gateway, RoutineStore store) {
         this.gateway = Objects.requireNonNull(gateway);
@@ -26,6 +37,7 @@ public final class DepartureController {
         if (issued) return;
         proposed = Objects.requireNonNull(destination);
         this.preference = Objects.requireNonNull(preference);
+        stops = stops.stream().filter(stop -> !Model.samePlace(stop, destination)).toList();
         proposalRevision++;
         if (querying) {
             showChecking();
@@ -34,6 +46,17 @@ public final class DepartureController {
         } else {
             refreshActiveRoute(() -> {});
         }
+    }
+
+    /**
+     * Stops planned with the proposal, sent together with the destination on confirm. Changing them invalidates
+     * a confirmation that is still checking the route, exactly like changing the destination.
+     */
+    public boolean setStops(List<Destination> value) {
+        if (issued || proposed == null || state == State.REQUESTING) return false;
+        stops = Model.checkStops(proposed, value);
+        proposalRevision++;
+        return true;
     }
 
     /** Read the current route on entry or explicit refresh. Never dispatch or unlock an issued trip. */
@@ -113,6 +136,7 @@ public final class DepartureController {
     private void dispatch(int day, int minute, long now, Runnable changed) {
         Destination submitted = proposed;
         Preference submittedPreference = preference;
+        List<Destination> submittedStops = stops;
         long attempt = ++attemptSequence;
         issued = true;
         state = State.REQUESTING;
@@ -137,6 +161,7 @@ public final class DepartureController {
                     activeRoute = ActiveRoute.ACTIVE;
                     state = State.VERIFIED;
                     message = result.message();
+                    sentStops = submittedStops;
                     try { store.recordSelection(new Selection(submitted, day, minute, now)); }
                     catch (IOException error) { message += " 선택 기록은 저장하지 못했습니다."; }
                 }
@@ -147,17 +172,82 @@ public final class DepartureController {
                 onSuccess(new RouteResult(false, "안내 결과 미확인: " + error + ". 재요청하지 않고 순정 내비를 확인하세요."));
             }
         };
-        try { gateway.start(submitted, submittedPreference, callback); }
+        try { gateway.start(submitted, submittedStops, submittedPreference, callback); }
         catch (RuntimeException error) { callback.onFailure("안내 요청 중 오류가 발생했습니다"); }
+    }
+
+    /** Stops known to be on the guided route: sent with a verified start plus verified additions. */
+    private int knownStops() { return sentStops.size() + addedStops; }
+
+    /** A stop can be added only while the navi is guiding and no other check or request is in flight. */
+    public boolean canAddStop() {
+        return activeRoute == ActiveRoute.ACTIVE && !querying && state != State.REQUESTING
+            && stopState != StopState.REQUESTING && knownStops() < Model.MAX_STOPS;
+    }
+
+    /**
+     * Adds one stop to the guided route after the gateway rechecks guidance, existing stops and parking.
+     * The same place is dispatched at most once per session, including after an unverified result.
+     */
+    public void addStop(Destination stop, Runnable changed) {
+        Objects.requireNonNull(stop); Objects.requireNonNull(changed);
+        if (!canAddStop()) return;
+        String key = stop.id() + "/" + stop.subId();
+        if (issuedStops.contains(key)) {
+            stopState = StopState.NOT_SENT;
+            stopMessage = "이미 요청한 곳이에요. 다시 요청하지 않아요.";
+            changed.run(); return;
+        }
+        if (!parked()) {
+            stopState = StopState.NOT_SENT;
+            stopMessage = "정차를 확인하면 들를 곳을 넣을 수 있어요.";
+            changed.run(); return;
+        }
+        long attempt = ++stopSequence;
+        stopState = StopState.REQUESTING;
+        stopMessage = stop.name() + " · 경로에 넣고 있어요.";
+        changed.run();
+        NaviGateway.Callback<RouteResult> callback = new NaviGateway.Callback<>() {
+            private boolean current() { return stopState == StopState.REQUESTING && attempt == stopSequence; }
+            @Override public void onSuccess(RouteResult result) {
+                if (!current()) return;
+                if (result != null && result.blockedBy() != null) {
+                    issuedStops.remove(key);
+                    stopState = StopState.NOT_SENT;
+                    stopMessage = result.message() == null ? "들를 곳을 요청하지 않았어요." : result.message();
+                } else if (result != null && result.verified()) {
+                    addedStops++;
+                    stopState = StopState.ADDED;
+                    stopMessage = result.message();
+                } else {
+                    stopState = StopState.UNCONFIRMED;
+                    stopMessage = result == null ? "들를 곳이 들어갔는지 확인하지 못했어요. 다시 요청하지 않아요." : result.message();
+                }
+                changed.run();
+            }
+            @Override public void onFailure(String error) {
+                onSuccess(new RouteResult(false, "들를 곳 결과 미확인: " + error + ". 다시 요청하지 않고 순정 내비를 확인하세요."));
+            }
+        };
+        issuedStops.add(key);
+        try { gateway.addStop(stop, callback); }
+        catch (RuntimeException error) { callback.onFailure("들를 곳 요청 중 오류가 발생했습니다"); }
     }
 
     public void dismiss() {
         if (issued) return;
         proposalRevision++;
         proposed = null;
+        stops = List.of();
         state = State.DISMISSED;
         message = "이번 추천을 넘겼습니다. 내비는 변경하지 않았습니다.";
     }
+    /** Planned stops; after confirm these are the stops that were submitted with the destination. */
+    public List<Destination> stops() { return stops; }
+    /** Stops verified as added while guiding. */
+    public int addedStops() { return addedStops; }
+    public StopState stopState() { return stopState; }
+    public String stopMessage() { return stopMessage; }
     public ActiveRoute activeRoute() { return activeRoute; }
     public State state() { return state; }
     public String message() { return message; }

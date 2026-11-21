@@ -8,6 +8,28 @@ public final class Model {
     private Model() {}
     public enum Preference { RECOMMENDED, SHORT_TIME, COMFORTABLE }
     public enum ActiveRoute { ACTIVE, INACTIVE, UNAVAILABLE }
+    /** The stock navi accepts two waypoints (WaypointIndex FIRST and SECOND); the MVP keeps the same limit. */
+    public static final int MAX_STOPS = 2;
+    /** Result of adding a stop to the route being guided. */
+    public enum StopState { NONE, REQUESTING, ADDED, NOT_SENT, UNCONFIRMED }
+
+    /** Same POI: id and subId. Coordinates may be snapped by the navi, so they are not part of identity. */
+    public static boolean samePlace(Destination a, Destination b) {
+        return a != null && b != null && a.id().equals(b.id()) && a.subId().equals(b.subId());
+    }
+
+    /** Stops in visiting order: at most two, no duplicates, none equal to the destination. */
+    public static List<Destination> checkStops(Destination destination, List<Destination> stops) {
+        Objects.requireNonNull(stops, "stops");
+        if (stops.size() > MAX_STOPS) throw new IllegalArgumentException("들를 곳은 " + MAX_STOPS + "곳까지예요.");
+        for (int i = 0; i < stops.size(); i++) {
+            Destination stop = Objects.requireNonNull(stops.get(i), "stop");
+            if (samePlace(stop, destination)) throw new IllegalArgumentException("목적지는 들를 곳으로 넣을 수 없어요.");
+            for (int j = 0; j < i; j++)
+                if (samePlace(stop, stops.get(j))) throw new IllegalArgumentException("같은 곳을 두 번 넣을 수 없어요.");
+        }
+        return List.copyOf(stops);
+    }
     public record Destination(String id, String name, String address, double latitude,
                               double longitude, String subId) {
         public Destination {

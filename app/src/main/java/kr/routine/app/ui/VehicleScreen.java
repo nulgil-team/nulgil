@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Objects;
 import kr.routine.app.vehicle.VehicleUiState;
 import kr.routine.core.DepartureController;
+import kr.routine.core.Model;
 import kr.routine.core.Model.*;
 
 /** Native rendering of the web specification's app area. No navigation decisions or SDK calls. */
@@ -35,6 +36,11 @@ public final class VehicleScreen {
         void recommend();
         /** Stock map: destination before departure, whole active route when routeOverview is true. */
         void showNativeMap(boolean routeOverview);
+        /** Stops planned before departure, sent with the destination on confirm. */
+        void addPlannedStop(Destination stop);
+        void removePlannedStop(Destination stop);
+        /** One stop added to the route being guided, after the driver confirms in a sheet. */
+        void addStopNow(Destination stop);
         void setConsent(boolean enabled);
         void registerRoutine(Destination destination,int day,int minute);
         void clearHistory();
@@ -54,6 +60,8 @@ public final class VehicleScreen {
     private VehicleVisuals.Palette colors;
     private String screen="home", sheet, theme="system", pendingScenario, confirmDestination;
     private String onboardId, onboardSubId;
+    private Destination pendingStop;
+    private boolean stopPickerLive;
     private int onboardDay=3, onboardMinute=480;
     private boolean building;
     private int width,height;
@@ -100,7 +108,7 @@ public final class VehicleScreen {
     public void restoreState(Bundle saved) {
         if(saved==null) return;
         String candidate=saved.getString("screen","home");
-        screen=List.of("home","picker","guide","settings","onboard1","onboard2","onboard3").contains(candidate)?candidate:"home";
+        screen=List.of("home","picker","guide","settings","onboard1","onboard2","onboard3","stops").contains(candidate)?candidate:"home";
         String savedTheme=saved.getString("theme","system");
         theme=List.of("system","day","night").contains(savedTheme)?savedTheme:"system";
         onboardId=saved.getString("onboardId"); onboardSubId=saved.getString("onboardSubId");
@@ -135,6 +143,7 @@ public final class VehicleScreen {
             if(state.notice()!=null && !state.notice().isBlank()) banner(body,state.notice(),true);
             switch(screen) {
                 case "picker" -> picker(body,false);
+                case "stops" -> stopPicker(body);
                 case "settings" -> settings(body);
                 case "onboard1" -> onboardConsent(body);
                 case "onboard2" -> picker(body,true);
@@ -177,7 +186,9 @@ public final class VehicleScreen {
         }
         if(state.activeRoute()==ActiveRoute.ACTIVE) {
             heading(body,"이미 안내 중이에요"); description(body,"현재 경로를 유지할게요. 안내 내용은 순정 내비에서 확인해 주세요.");
+            stopStatus(body);
             add(body,button("순정 지도에서 경로 전체 보기",true,state.canRefresh()&&!state.demo(),()->actions.showNativeMap(true)),32);
+            add(body,button("들를 곳 넣기",false,state.canAddStop()&&!stopCandidates().isEmpty(),()->openStopPicker(true)),14);
             refreshButton(body); return;
         }
         if(state.activeRoute()==ActiveRoute.UNAVAILABLE || !state.connected()) {
@@ -207,7 +218,7 @@ public final class VehicleScreen {
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,WRAP,.8f); lp.leftMargin=40; lead.addView(summary,lp);
         }
         // Route preference lives in settings only, matching the navi-style home of the web spec.
-        add(body,lead,0); route(body);
+        add(body,lead,0); route(body); stops(body);
         actionRow(page,button(state.busy()?"확인 중":"안내 시작",true,state.canConfirm(),()-> {
             confirmDestination=destinationKey(state.destination()); showSheet("confirm");
         }),button("이번엔 넘기기",false,state.canEdit() && !state.busy(),actions::dismiss));
@@ -298,6 +309,10 @@ public final class VehicleScreen {
         });
         description(body,state.message());
         if(state.destination()!=null) route(body);
+        if(!state.stops().isEmpty()) add(body,text("함께 보낸 들를 곳: "+names(state.stops()),34,false,colors.secondary()),12);
+        stopStatus(body);
+        if(state.activeRoute()==ActiveRoute.ACTIVE && (state.stops().size()+state.addedStops())<Model.MAX_STOPS)
+            add(body,button("들를 곳 넣기",false,state.canAddStop()&&!stopCandidates().isEmpty(),()->openStopPicker(true)),20);
         if(state.departureState()==DepartureController.State.UNCONFIRMED)
             banner(body,"같은 이동은 다시 요청하지 않아요. 순정 내비에서 현재 경로를 확인해 주세요.",true);
         if(state.demo()) banner(body,"모의 응답입니다. 실제 내비에는 연결하지 않았어요.",false);
@@ -349,7 +364,7 @@ public final class VehicleScreen {
         }
         add(body,text("연결 시험",40,true,colors.text()),32);
         add(body,button(state.demo()?"순정 내비 연결 시험":"모의 시연으로 전환",false,state.canSwitchMode(),()->showSheet("mode")),14);
-        description(body,"지도·경유지·폰 전송은 아직 연결되지 않았어요.");
+        description(body,"들를 곳은 순정 장소에서 고를 수 있어요. 친구 제안과 폰 전송은 아직 연결되지 않았어요.");
         if(state.demo()) {
             add(body,text("개발 시연",40,true,colors.text()),32);
             description(body,"아래 재현은 모의 이동과 시연 기록을 초기화해요. 먼저 기록 저장에 동의해 주세요.");
@@ -421,7 +436,9 @@ public final class VehicleScreen {
             case "confirm" -> {
                 heading(card,"이 목적지로 안내할까요?");
                 description(card,state.destination()==null?"목적지를 다시 확인해 주세요":state.destination().name());
-                description(card,state.demo()?"모의 안내입니다. 순정 내비는 바뀌지 않아요.":"순정 내비에 목적지를 한 번 요청해요.");
+                if(!state.stops().isEmpty()) description(card,"들를 곳 "+state.stops().size()+"곳: "+names(state.stops()));
+                description(card,state.demo()?"모의 안내입니다. 순정 내비는 바뀌지 않아요."
+                    :state.stops().isEmpty()?"순정 내비에 목적지를 한 번 요청해요.":"순정 내비에 들를 곳과 목적지를 함께 한 번 요청해요.");
                 description(card,preferenceLabel(state.preference())+" · 성향별 예상 시간은 아직 제공하지 않아요.");
                 boolean same=Objects.equals(confirmDestination,destinationKey(state.destination()));
                 add(card,button("안내 시작",true,same&&state.canConfirm(),()-> {
@@ -449,9 +466,73 @@ public final class VehicleScreen {
                     String choice=pendingScenario; sheet=null; screen="home"; actions.demoScenario(choice);
                 }),28);
             }
+            case "stop" -> {
+                heading(card,"이 곳을 경로에 넣을까요?");
+                description(card,pendingStop==null?"장소를 다시 골라 주세요":pendingStop.name()+" · "+pendingStop.address());
+                description(card,state.demo()?"모의 안내에 들를 곳을 넣어요. 순정 내비는 바뀌지 않아요."
+                    :"지금 안내 중인 경로에 들를 곳으로 한 번 요청해요. 목적지는 그대로이고, 결과를 확인하지 못해도 다시 요청하지 않아요.");
+                add(card,button("경로에 넣기",true,pendingStop!=null&&state.canAddStop(),()-> {
+                    Destination chosen=pendingStop; pendingStop=null; sheet=null; actions.addStopNow(chosen);
+                }),28);
+            }
             default -> description(card,"현재 상태를 다시 확인해 주세요");
         }
-        add(card,button("닫기",false,true,()->{sheet=null;rebuild();}),16);
+        add(card,button("닫기",false,true,()->{sheet=null;pendingStop=null;rebuild();}),16);
+    }
+    /** Planned stops on the home screen: up to two, added from the stock places, removable until confirm. */
+    private void stops(LinearLayout parent) {
+        LinearLayout box=column(); box.setPadding(28,24,28,24); box.setBackground(shape(colors.surface(),0,26));
+        add(box,text(state.stops().isEmpty()?"들를 곳":"들를 곳 "+state.stops().size()+"/"+Model.MAX_STOPS,34,true,colors.text()),0);
+        if(state.stops().isEmpty()) add(box,text("가는 길에 들를 곳을 순정 즐겨찾기·최근 목적지에서 넣을 수 있어요. 최대 "+Model.MAX_STOPS+"곳.",30,false,colors.secondary()),10);
+        for(int i=0;i<state.stops().size();i++) {
+            Destination stop=state.stops().get(i);
+            LinearLayout line=row(); line.setGravity(Gravity.CENTER_VERTICAL);
+            line.addView(text((i+1)+". "+stop.name(),36,true,colors.text()),new LinearLayout.LayoutParams(0,WRAP,1));
+            Button remove=button("빼기",false,state.canPlanStops(),()->actions.removePlannedStop(stop));
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(metrics.touch(150),WRAP); lp.leftMargin=16; line.addView(remove,lp);
+            add(box,line,12);
+        }
+        if(state.stops().size()<Model.MAX_STOPS)
+            add(box,button("들를 곳 추가",false,state.canPlanStops()&&!stopCandidates().isEmpty(),()->openStopPicker(false)),16);
+        add(parent,box,24);
+    }
+    private void stopPicker(LinearLayout body) {
+        heading(body,stopPickerLive?"어디에 들를까요?":"가는 길에 어디에 들를까요?");
+        description(body,stopPickerLive?"순정 내비의 즐겨찾기와 최근 목적지예요 · 정차 중에 한 번만 요청해요":"순정 내비의 즐겨찾기와 최근 목적지예요");
+        List<Destination> candidates=stopCandidates();
+        boolean enabled=stopPickerLive?state.canAddStop():state.canPlanStops();
+        for(Destination candidate:candidates) {
+            add(body,button(candidate.name()+"\n"+candidate.address(),false,enabled,()-> {
+                if(stopPickerLive) { pendingStop=candidate; screen=terminal(state)?"guide":"home"; showSheet("stop"); }
+                else { screen="home"; actions.addPlannedStop(candidate); }
+            }),14);
+        }
+        if(candidates.isEmpty()) description(body,"넣을 수 있는 장소가 없어요. 순정 내비에서 즐겨찾기를 먼저 추가해 주세요.");
+    }
+    private void openStopPicker(boolean live) { stopPickerLive=live; navigate("stops"); }
+    /** Places that are neither the destination nor already a stop. */
+    private List<Destination> stopCandidates() {
+        List<Destination> out=new java.util.ArrayList<>();
+        for(Destination place:state.destinations()) {
+            if(Model.samePlace(place,state.destination())) continue;
+            boolean used=false;
+            for(Destination stop:state.stops()) if(Model.samePlace(place,stop)) used=true;
+            if(!used) out.add(place);
+        }
+        return out;
+    }
+    private void stopStatus(LinearLayout parent) {
+        if(state.stopMessage()==null || state.stopMessage().isBlank()) return;
+        switch(state.stopState()) {
+            case "REQUESTING","ADDED" -> banner(parent,state.stopMessage(),false);
+            case "NOT_SENT","UNCONFIRMED" -> banner(parent,state.stopMessage(),true);
+            default -> {}
+        }
+    }
+    private static String names(List<Destination> places) {
+        StringBuilder out=new StringBuilder();
+        for(Destination place:places) { if(out.length()>0) out.append(" → "); out.append(place.name()); }
+        return out.toString();
     }
     private Destination onboardDestination() {
         for(Destination destination:state.destinations())

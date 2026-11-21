@@ -62,7 +62,41 @@ public final class VehicleSession implements AutoCloseable {
             collecting && trafficRequested ? advice.history() : List.of(), departure.state(), departure.activeRoute(),
             edit, edit && destination != null && departure.state() == DepartureController.State.READY,
             !closed && !working, !closed && !working && !locked() && !collectionBlocked, message, notice, now(), zone,
-            gateway instanceof DemoNaviGateway g ? g.startCount() : -1, store.rules());
+            gateway instanceof DemoNaviGateway g ? g.startCount() : -1, store.rules(),
+            departure.stops(), departure.addedStops(), departure.stopState().name(), departure.stopMessage(),
+            edit && destination != null,
+            connected && !closed && !working && parked && !collectionBlocked && departure.canAddStop());
+    }
+
+    /** Plans a stop to send together with the destination. Nothing is sent until the driver confirms. */
+    public void addPlannedStop(Destination value) {
+        if (!snapshot().canPlanStops()) return;
+        Destination current = resolve(value);
+        if (current == null) { notice = "현재 내비에서 장소를 다시 확인해 주세요."; emit(); return; }
+        List<Destination> next = new ArrayList<>(departure.stops());
+        if (Model.samePlace(current, destination) || next.stream().anyMatch(stop -> Model.samePlace(stop, current))) {
+            notice = "이미 경로에 있는 곳이에요."; emit(); return;
+        }
+        if (next.size() >= Model.MAX_STOPS) { notice = "들를 곳은 " + Model.MAX_STOPS + "곳까지예요."; emit(); return; }
+        next.add(current);
+        try { if (departure.setStops(next)) notice = ""; }
+        catch (IllegalArgumentException invalid) { notice = invalid.getMessage(); }
+        emit();
+    }
+
+    public void removePlannedStop(Destination value) {
+        if (!snapshot().canPlanStops()) return;
+        departure.setStops(departure.stops().stream().filter(stop -> !Model.samePlace(stop, value)).toList());
+        notice = ""; emit();
+    }
+
+    /** Adds one stop to the route being guided. The gateway rechecks guidance and parking; never retried. */
+    public void addStopNow(Destination value) {
+        if (!snapshot().canAddStop()) return;
+        Destination current = resolve(value);
+        if (current == null) { notice = "현재 내비에서 장소를 다시 확인해 주세요."; emit(); return; }
+        notice = "";
+        departure.addStop(current, this::emit);
     }
 
     public void setListener(Runnable value) { listener = value; if (listener != null) listener.run(); }
@@ -91,6 +125,9 @@ public final class VehicleSession implements AutoCloseable {
                 else if (destination != null) preview();
                 else if (initialRecommendationPending) { initialRecommendationPending = false; recommend(false); }
                 else emit();
+            } else if (departure.activeRoute() == ActiveRoute.ACTIVE && destinations.isEmpty() && parked()) {
+                // Already guiding (for example after the app restarted): read the places so a stop can be added.
+                loadPlaces();
             } else emit();
         });
         emit();
@@ -117,6 +154,8 @@ public final class VehicleSession implements AutoCloseable {
             busy = false; destinations = values == null ? List.of() : List.copyOf(values);
             initialRecommendationPending = true;
             if (!drainForeground()) { initialRecommendationPending = false; recommend(false); }
+            // recommend() is a no-op while already guiding; redraw so the loaded places become usable.
+            emit();
         }, error -> { busy = false; notice = error; emit(); drainForeground(); }));
     }
 
@@ -297,7 +336,10 @@ public final class VehicleSession implements AutoCloseable {
     private long now() { return demo ? demoNow : clock.millis(); }
     private boolean parked() { try { return connected && !closed && gateway.isParked(); } catch (RuntimeException error) { return false; } }
     private boolean locked() { return switch(departure.state()) { case REQUESTING,VERIFIED,UNCONFIRMED -> true; default -> false; }; }
-    private boolean working() { return busy || departure.state() == DepartureController.State.REQUESTING || departure.state() == DepartureController.State.CHECKING_ROUTE; }
+    private boolean working() {
+        return busy || departure.state() == DepartureController.State.REQUESTING
+            || departure.state() == DepartureController.State.CHECKING_ROUTE || departure.stopState() == StopState.REQUESTING;
+    }
     private boolean current(long request) { return !closed && sequence == request; }
     private boolean drainForeground() {
         if (pendingForeground && connected && !working() && !closed) { pendingForeground = false; refresh(); return true; }

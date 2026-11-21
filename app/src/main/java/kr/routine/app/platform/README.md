@@ -9,6 +9,7 @@
 - SDK 응답에는 경로선 좌표가 없다(`routePoints`는 도착지 1개). `showNativeMap`은 `requestNavigationScreen`으로 순정 지도에 목적지(`POIDetailPopup`)나 경로 전체(`OverviewRoute`)를 띄운다. `pleos.car.permission.NAVI_CUSTOM_MAP`이 필요하다. 화면 요청은 경로에 영향이 없어 실패해도 연결을 끊지 않는다.
 - 경로 요청 뒤 `onRoutingCompleted`는 오지 않았다. `onRouteStarted` 직후 같은 밀리초에 `onRouteEnded`가 온다. `onRouteStarted`를 받으면 1.5초 뒤 목적지·상태를 재조회하고, 시작 직후의 종료·취소는 전환으로 본다.
 - 재조회한 목적지 좌표는 도로 쪽으로 옮겨져 있다(29~283m). POI id·subId는 완전 일치를 요구하고 좌표는 500m 이내만 확인한다.
+- 들를 곳: 출발 전에는 `requestRouteWithWaypoints`, 안내 중에는 경로·경유지·목적지·정차를 확인한 뒤 `addWaypoint`. 경유지 재조회 좌표는 (0, 0)으로 와서 POI id·subId로 확인한다. `addWaypoint` 뒤에는 `RouteCancelled` → 재탐색 → `WaypointChanged(ADD)`+`RouteEnded` 순서로 오며, 추가 중의 취소·종료는 재조회로 판정한다. 순정은 방문 순서를 스스로 정한다(SECOND로 보내도 FIRST에 넣음).
 - 로그 태그 `RoutineNavi`에는 개수, 탈락 사유, 원시 ETA·거리, 재조회 판정만 남기고 장소 이름·좌표는 남기지 않는다.
 
 `PleosNaviGateway`는 NaviHelper 3.0.5를 사용한다. navi-data 3.0.4의 로컬 공개 선언과 생성자 인자 순서를 확인해 작성했다. 특히 RouteInfo의 첫 두 인자는 위도, 경도다. 웹 Java 예제의 순서를 그대로 복사하지 않았다.

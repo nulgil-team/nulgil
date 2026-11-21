@@ -7,7 +7,13 @@ import android.os.Looper;
 import android.util.Log;
 import ai.pleos.playground.navi.constants.NaviErrorCode;
 import ai.pleos.playground.navi.constants.RouteOption;
+import ai.pleos.playground.navi.constants.WaypointCmdType;
+import ai.pleos.playground.navi.constants.WaypointIndex;
 import ai.pleos.playground.navi.data.BookmarkInfo;
+import ai.pleos.playground.navi.data.RequestWaypointInfo;
+import ai.pleos.playground.navi.data.RouteWithWaypointsRequest;
+import ai.pleos.playground.navi.data.WaypointChangedInfo;
+import ai.pleos.playground.navi.data.WaypointInfo;
 import ai.pleos.playground.navi.data.CurrentLocationInfo;
 import ai.pleos.playground.navi.data.NavigationScreenRequest;
 import ai.pleos.playground.navi.data.RouteOverviewShowInfo;
@@ -27,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import kr.routine.core.Model;
 import kr.routine.core.Model.*;
 import kr.routine.core.NaviGateway;
 import kotlin.Unit;
@@ -34,7 +41,8 @@ import kotlin.Unit;
 /** Single-flight SDK adapter. No route cancellation, hidden APIs, automatic retry, or guessed ETA units. */
 public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListener {
     private static final String TAG = "RoutineNavi";
-    private enum Phase { IDLE, CONNECT, PLACES, ESTIMATE, QUERY_ROUTE, PRECHECK, ROUTING, READBACK, RECOVERY, CLOSED }
+    private enum Phase { IDLE, CONNECT, PLACES, ESTIMATE, QUERY_ROUTE, PRECHECK, ROUTING, READBACK, RECOVERY,
+        STOP_PRECHECK, STOP_ADDING, STOP_READBACK, CLOSED }
     private record PlaceMetadata(String provider, Double displayLatitude, Double displayLongitude) {}
     private final Context context;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -71,6 +79,19 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
     private Preference preference;
     private DestinationInfo readDestination;
     private RouteStateInfo readState;
+    /** Stops sent with the route; the readback must find exactly these waypoints. */
+    private List<Destination> routeStops = List.of();
+    private boolean waypointsNeeded;
+    private List<WaypointInfo> readWaypoints;
+    /** One stop added while guiding: precheck, addWaypoint, settled readback. */
+    private Destination stopTarget;
+    private Callback<RouteResult> stopCallback;
+    private RouteStateInfo stopReadState;
+    private List<WaypointInfo> stopWaypoints;
+    private DestinationInfo stopDestination;
+    private boolean stopEventSeen;
+    private int stopCountBefore;
+    private String stopDestinationBefore;
 
     public PleosNaviGateway(Context context) {
         this.context = context.getApplicationContext();
@@ -111,8 +132,11 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
                 journal.getString("address", ""), Double.parseDouble(journal.getString("lat", "")),
                 Double.parseDouble(journal.getString("lon", "")), journal.getString("subId", ""));
             preference = Preference.valueOf(journal.getString("preference", ""));
+            routeStops = decodeStops(journal.getString("stops", ""));
             phase = Phase.RECOVERY;
-            readDestination = null; readState = null;
+            readDestination = null; readState = null; readWaypoints = null;
+            waypointsNeeded = !routeStops.isEmpty();
+            if (waypointsNeeded) helper.getWaypointInfo();
             helper.getDestinationInfo();
             helper.getRouteStateInfo();
         } catch (RuntimeException ex) {
@@ -167,7 +191,21 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
     }
 
     @Override public void start(Destination destination, Preference option, Callback<RouteResult> callback) {
+        start(destination, List.of(), option, callback);
+    }
+
+    @Override public void start(Destination destination, List<Destination> stops, Preference option, Callback<RouteResult> callback) {
         requireMain();
+        List<Destination> checkedStops;
+        try { checkedStops = Model.checkStops(destination, stops); }
+        catch (IllegalArgumentException | NullPointerException ex) {
+            callback.onSuccess(RouteResult.notSent(ActiveRoute.INACTIVE, "들를 곳을 다시 확인해 주세요: " + ex.getMessage())); return;
+        }
+        for (Destination stop : checkedStops) {
+            if (!knownPlaces.containsKey(stop)) {
+                callback.onSuccess(RouteResult.notSent(ActiveRoute.INACTIVE, "들를 곳은 순정 즐겨찾기·최근 목적지에서 골라 주세요.")); return;
+            }
+        }
         if (phase != Phase.IDLE || !connected || poisoned) {
             callback.onSuccess(RouteResult.notSent(ActiveRoute.UNAVAILABLE, "연결이 준비되면 안내 상태를 다시 확인하세요.")); return;
         }
@@ -177,7 +215,7 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
         if (destination == null || option == null || !knownPlaces.containsKey(destination)) {
             callback.onSuccess(RouteResult.notSent(ActiveRoute.UNAVAILABLE, "현재 순정에서 확인한 장소와 경로 옵션이 필요합니다.")); return;
         }
-        target = destination; preference = option; routeCallback = callback;
+        target = destination; preference = option; routeCallback = callback; routeStops = checkedStops;
         begin(Phase.PRECHECK, 16000);
         try { helper.getRouteStateInfo(); }
         catch (RuntimeException ex) { failSession("현재 경로 상태 조회 실패: " + ex.getClass().getSimpleName()); }
@@ -194,6 +232,7 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
         PlaceMetadata metadata = knownPlaces.get(target);
         if (metadata == null) { finishWithoutRequest(status, "장소 정보가 바뀌었습니다. 목적지를 다시 선택하세요."); return; }
         RouteInfo request;
+        List<RequestWaypointInfo> waypoints = new ArrayList<>();
         try {
             // Another gateway in the same process can have recorded a dispatch while we awaited the SDK.
             if (journal.getBoolean("requestOutstanding", false)) {
@@ -204,18 +243,27 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
             request = new RouteInfo(target.latitude(), target.longitude(), metadata.displayLatitude(),
                 metadata.displayLongitude(), target.name(), target.id(), target.address(), target.subId(),
                 RouteOption.valueOf(preference.name()), metadata.provider(), false);
+            for (int i = 0; i < routeStops.size(); i++) {
+                Destination stop = routeStops.get(i);
+                PlaceMetadata stopMetadata = knownPlaces.get(stop);
+                if (stopMetadata == null) { finishWithoutRequest(status, "들를 곳 정보가 바뀌었습니다. 다시 골라 주세요."); return; }
+                waypoints.add(waypointRequest(stop, stopMetadata, i == 0 ? WaypointIndex.FIRST : WaypointIndex.SECOND));
+            }
             boolean persisted = journal.edit().putBoolean("requestOutstanding", true)
                 .putString("id", target.id()).putString("name", target.name()).putString("address", target.address())
                 .putString("lat", Double.toString(target.latitude())).putString("lon", Double.toString(target.longitude()))
-                .putString("subId", target.subId()).putString("preference", preference.name()).commit();
+                .putString("subId", target.subId()).putString("preference", preference.name())
+                .putString("stops", encodeStops(routeStops)).commit();
             if (!persisted) { failSession("안내 요청 기록을 저장할 수 없어 발행을 보류했습니다."); return; }
         } catch (RuntimeException ex) { failSession("안내 요청 준비 실패: " + ex.getClass().getSimpleName()); return; }
         routeIssued = true;
         routeStartSeen = false;
         begin(Phase.ROUTING, ROUTE_TIMEOUT_MS);
-        Log.i(TAG, "route: requestRoute issued option=" + preference);
+        Log.i(TAG, "route: " + (waypoints.isEmpty() ? "requestRoute" : "requestRouteWithWaypoints stops=" + waypoints.size())
+            + " issued option=" + preference);
         try {
-            helper.requestRoute(request);
+            if (waypoints.isEmpty()) helper.requestRoute(request);
+            else helper.requestRouteWithWaypoints(new RouteWithWaypointsRequest(request, waypoints));
         } catch (RuntimeException ex) {
             failSession("경로 요청 결과 미확인: " + ex.getClass().getSimpleName() + ". 재발행하지 않습니다.");
         }
@@ -387,6 +435,25 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
                 callback.onSuccess(PleosRouteStatus.from(value));
             } else if (phase == Phase.PRECHECK) issueAfterPrecheck(value);
             else if (phase == Phase.READBACK || phase == Phase.RECOVERY) { readState = value; verifyReadback(); }
+            else if (phase == Phase.STOP_PRECHECK) { stopReadState = value; stopPrecheckIfReady(); }
+            else if (phase == Phase.STOP_READBACK) { stopReadState = value; stopReadbackIfReady(); }
+        });
+    }
+
+    @Override public void onWayPointInfo(List<WaypointInfo> value) {
+        deliver(() -> {
+            List<WaypointInfo> list = value == null ? List.of() : value;
+            if ((phase == Phase.READBACK || phase == Phase.RECOVERY) && waypointsNeeded) { readWaypoints = list; verifyReadback(); }
+            else if (phase == Phase.STOP_PRECHECK) { stopWaypoints = list; stopPrecheckIfReady(); }
+            else if (phase == Phase.STOP_READBACK) { stopWaypoints = list; stopReadbackIfReady(); }
+        });
+    }
+
+    @Override public void onWaypointChanged(WaypointChangedInfo value) {
+        deliver(() -> {
+            Log.i(TAG, "stop event: waypointChanged cmd=" + (value == null ? "null" : value.getCmdType())
+                + " index=" + (value == null ? "null" : value.getIndex()) + " phase=" + phase);
+            if (phase == Phase.STOP_ADDING && (value == null || value.getCmdType() == WaypointCmdType.ADD)) scheduleStopReadback();
         });
     }
 
@@ -396,6 +463,8 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
             if (phase == Phase.QUERY_ROUTE || phase == Phase.PRECHECK) {
                 failSession("상태 조회 중 순정 경로 탐색이 시작됐습니다."); return;
             }
+            // Adding a waypoint re-routes; either this or WaypointChanged starts the settled readback.
+            if (phase == Phase.STOP_ADDING) { scheduleStopReadback(); return; }
             if (phase != Phase.ROUTING || routeStartSeen) return;
             // Observed on Pleos Connect 2.1.0: RouteStarted is the only completion signal. Read back after it settles.
             routeStartSeen = true;
@@ -415,25 +484,36 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
 
     private void startReadback() {
         phase = Phase.READBACK;
-        readDestination = null; readState = null;
-        try { helper.getDestinationInfo(); helper.getRouteStateInfo(); }
+        readDestination = null; readState = null; readWaypoints = null;
+        waypointsNeeded = !routeStops.isEmpty();
+        try {
+            if (waypointsNeeded) helper.getWaypointInfo();
+            helper.getDestinationInfo(); helper.getRouteStateInfo();
+        }
         catch (RuntimeException ex) { failSession("경로 시작 후 재조회 실패. 결과는 미확인입니다."); }
     }
 
     @Override public void onDestinationInfo(DestinationInfo value) {
         deliver(() -> {
             if (phase == Phase.READBACK || phase == Phase.RECOVERY) { readDestination = value; verifyReadback(); }
+            else if (phase == Phase.STOP_PRECHECK) { stopDestination = value; stopPrecheckIfReady(); }
+            else if (phase == Phase.STOP_READBACK) { stopDestination = value; stopReadbackIfReady(); }
         });
     }
 
     private void verifyReadback() {
         if (readDestination == null || readState == null) return;
+        if (waypointsNeeded && readWaypoints == null) return;
+        boolean stopsMatch = !waypointsNeeded || waypointsMatch(routeStops, readWaypoints);
         boolean matches = target != null && PleosRouteStatus.confirmsNativeGuidance(readState)
             && readState.getRouteOption() == RouteOption.valueOf(preference.name())
             && Objects.equals(target.id(), readDestination.getPoiId())
             && Objects.equals(target.subId(), Objects.requireNonNullElse(readDestination.getPoiSubId(), ""))
             && metersBetween(target.latitude(), target.longitude(), readDestination.getLatitude(), readDestination.getLongitude())
-                <= READBACK_COORD_TOLERANCE_M;
+                <= READBACK_COORD_TOLERANCE_M
+            && stopsMatch;
+        if (waypointsNeeded) Log.i(TAG, "readback stops: wanted=" + routeStops.size() + " read=" + readWaypoints.size() + " match=" + stopsMatch
+            + " " + describeWaypoints(routeStops, readWaypoints));
         Log.i(TAG, "readback: phase=" + phase + " mode=" + readState.getNaviMode() + " routing=" + readState.isRouting()
             + " terms=" + readState.getTermsAgreement() + " option=" + readState.getRouteOption() + " wanted=" + preference
             + " idMatch=" + (target != null && Objects.equals(target.id(), readDestination.getPoiId()))
@@ -445,16 +525,181 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
             + " readDisplay=" + (readDestination.getDisplayLatitude() == null ? "null" : "set")
             + " result=" + matches);
         if (!matches) {
-            failSession("재조회한 목적지·좌표·경로 옵션이 요청과 일치하지 않습니다. 결과 미확인, 재발행 차단.");
+            failSession(waypointsNeeded && !stopsMatch
+                ? "재조회한 들를 곳이 요청과 일치하지 않습니다. 결과 미확인, 재발행 차단."
+                : "재조회한 목적지·좌표·경로 옵션이 요청과 일치하지 않습니다. 결과 미확인, 재발행 차단.");
             return;
         }
-        if (!journal.edit().putBoolean("requestOutstanding", false).commit()) {
+        if (!journal.edit().putBoolean("requestOutstanding", false).remove("stops").commit()) {
             failSession("경로 일치는 확인했지만 요청 기록을 갱신하지 못했습니다. 재발행하지 않습니다."); return;
         }
         if (phase == Phase.RECOVERY) { finishConnection(); return; }
         Callback<RouteResult> callback = routeCallback;
         routeCallback = null; phase = Phase.IDLE;
-        callback.onSuccess(new RouteResult(true, "순정 목적지·좌표·경로 옵션 재조회 일치. 실제 지도 표시는 별도 확인이 필요합니다."));
+        callback.onSuccess(new RouteResult(true, routeStops.isEmpty()
+            ? "순정 목적지·좌표·경로 옵션 재조회 일치. 실제 지도 표시는 별도 확인이 필요합니다."
+            : "순정 목적지·들를 곳 " + routeStops.size() + "곳·경로 옵션 재조회 일치."));
+    }
+
+    // --- Adding one stop while guiding ---
+
+    @Override public void addStop(Destination stop, Callback<RouteResult> callback) {
+        requireMain();
+        if (phase != Phase.IDLE || !connected || poisoned || helper == null) {
+            callback.onSuccess(RouteResult.notSent(ActiveRoute.UNAVAILABLE, "연결이 준비되면 다시 확인하세요.")); return;
+        }
+        if (stop == null || !knownPlaces.containsKey(stop)) {
+            callback.onSuccess(RouteResult.notSent(ActiveRoute.ACTIVE, "들를 곳은 순정 즐겨찾기·최근 목적지에서 골라 주세요.")); return;
+        }
+        stopTarget = stop; stopCallback = callback;
+        stopReadState = null; stopWaypoints = null; stopDestination = null; stopEventSeen = false;
+        begin(Phase.STOP_PRECHECK, 16000);
+        try { helper.getRouteStateInfo(); helper.getWaypointInfo(); helper.getDestinationInfo(); }
+        catch (RuntimeException ex) { failSession("들를 곳 넣기 전 확인 실패: " + ex.getClass().getSimpleName()); }
+    }
+
+    private void stopPrecheckIfReady() {
+        if (stopReadState == null || stopWaypoints == null || stopDestination == null) return;
+        ActiveRoute status = PleosRouteStatus.from(stopReadState);
+        Log.i(TAG, "stop precheck: mode=" + stopReadState.getNaviMode() + " routing=" + stopReadState.isRouting()
+            + " waypoints=" + stopWaypoints.size());
+        if (!PleosRouteStatus.confirmsNativeGuidance(stopReadState) || stopReadState.isRouting()) {
+            finishStop(RouteResult.notSent(status == ActiveRoute.INACTIVE ? ActiveRoute.INACTIVE : ActiveRoute.ACTIVE,
+                "순정 내비가 안내 중일 때만 들를 곳을 넣을 수 있어요.")); return;
+        }
+        if (stopWaypoints.size() >= Model.MAX_STOPS) {
+            finishStop(RouteResult.notSent(ActiveRoute.ACTIVE, "이미 들를 곳이 " + Model.MAX_STOPS + "곳이에요. 순정 내비에서 직접 바꿔 주세요.")); return;
+        }
+        for (WaypointInfo existing : stopWaypoints) {
+            if (sameWaypoint(stopTarget, existing)) { finishStop(RouteResult.notSent(ActiveRoute.ACTIVE, "이미 경로에 있는 곳이에요.")); return; }
+        }
+        if (Objects.equals(stopTarget.id(), stopDestination.getPoiId())
+            && Objects.equals(stopTarget.subId(), Objects.requireNonNullElse(stopDestination.getPoiSubId(), ""))) {
+            finishStop(RouteResult.notSent(ActiveRoute.ACTIVE, "지금 안내 중인 목적지예요. 들를 곳으로 넣을 수 없어요.")); return;
+        }
+        if (!parked.isParked()) { finishStop(RouteResult.notSent(ActiveRoute.ACTIVE, parked.reason())); return; }
+        PlaceMetadata metadata = knownPlaces.get(stopTarget);
+        if (metadata == null) { finishStop(RouteResult.notSent(ActiveRoute.ACTIVE, "장소 정보가 바뀌었습니다. 다시 골라 주세요.")); return; }
+        RequestWaypointInfo request;
+        try { request = waypointRequest(stopTarget, metadata, stopWaypoints.isEmpty() ? WaypointIndex.FIRST : WaypointIndex.SECOND); }
+        catch (RuntimeException ex) { finishStop(RouteResult.notSent(ActiveRoute.ACTIVE, "들를 곳 요청을 만들지 못했어요: " + ex.getClass().getSimpleName())); return; }
+        stopCountBefore = stopWaypoints.size();
+        stopDestinationBefore = destinationKey(stopDestination);
+        begin(Phase.STOP_ADDING, ROUTE_TIMEOUT_MS);
+        Log.i(TAG, "stop: addWaypoint issued index=" + (stopCountBefore == 0 ? "FIRST" : "SECOND"));
+        try { helper.addWaypoint(request); }
+        catch (RuntimeException ex) { failSession("들를 곳 요청 결과 미확인: " + ex.getClass().getSimpleName() + ". 다시 요청하지 않습니다."); }
+    }
+
+    private void scheduleStopReadback() {
+        if (stopEventSeen) return;
+        stopEventSeen = true;
+        long token = operation;
+        main.postDelayed(() -> {
+            if (token != operation || phase != Phase.STOP_ADDING || poisoned) return;
+            phase = Phase.STOP_READBACK;
+            stopReadState = null; stopWaypoints = null; stopDestination = null;
+            try { helper.getRouteStateInfo(); helper.getWaypointInfo(); helper.getDestinationInfo(); }
+            catch (RuntimeException ex) { failSession("들를 곳 추가 후 재조회 실패. 결과는 미확인입니다."); }
+        }, ROUTE_SETTLE_MS);
+    }
+
+    private void stopReadbackIfReady() {
+        if (stopReadState == null || stopWaypoints == null || stopDestination == null) return;
+        boolean guiding = PleosRouteStatus.confirmsNativeGuidance(stopReadState);
+        boolean destinationKept = Objects.equals(stopDestinationBefore, destinationKey(stopDestination));
+        boolean contains = false;
+        for (WaypointInfo w : stopWaypoints) if (sameWaypoint(stopTarget, w)) contains = true;
+        boolean countOk = stopWaypoints.size() == stopCountBefore + 1;
+        boolean verified = guiding && destinationKept && contains && countOk;
+        Log.i(TAG, "stop readback: guiding=" + guiding + " destinationKept=" + destinationKept + " contains=" + contains
+            + " waypoints=" + stopCountBefore + "->" + stopWaypoints.size() + " result=" + verified);
+        finishStop(verified
+            ? new RouteResult(true, stopTarget.name() + " · 들를 곳을 경로에 넣었어요. 목적지는 그대로예요.")
+            : new RouteResult(false, "들를 곳이 들어갔는지 확인하지 못했어요. 다시 요청하지 않고 순정 내비를 확인하세요."));
+    }
+
+    private void finishStop(RouteResult result) {
+        Callback<RouteResult> callback = stopCallback;
+        stopCallback = null; stopTarget = null; phase = Phase.IDLE;
+        if (callback != null) callback.onSuccess(result);
+    }
+
+    private static RequestWaypointInfo waypointRequest(Destination stop, PlaceMetadata metadata, WaypointIndex index) {
+        // Constructor order from navi-data 3.0.4: latitude, longitude, poiName, index, poiId, address, poiSubId, poiProvider.
+        return new RequestWaypointInfo(stop.latitude(), stop.longitude(), stop.name(), index, stop.id(), stop.address(),
+            stop.subId(), metadata.provider() == null ? "" : metadata.provider());
+    }
+
+    /**
+     * POI id and subId must match exactly. Pleos Connect 2.1.0 returns waypoint coordinates as (0, 0) with no
+     * display coordinates (measured 2026-11-21, while remainDistance matched the stop), so the coordinate check
+     * applies only when the navi actually reports a position.
+     */
+    private static boolean sameWaypoint(Destination stop, WaypointInfo w) {
+        if (stop == null || w == null || !Objects.equals(stop.id(), w.getPoiId())
+            || !Objects.equals(stop.subId(), Objects.requireNonNullElse(w.getPoiSubId(), ""))) return false;
+        if (w.getLatitude() != 0.0 || w.getLongitude() != 0.0)
+            return metersBetween(stop.latitude(), stop.longitude(), w.getLatitude(), w.getLongitude()) <= READBACK_COORD_TOLERANCE_M;
+        if (w.getDisplayLatitude() != null && w.getDisplayLongitude() != null)
+            return metersBetween(stop.latitude(), stop.longitude(), w.getDisplayLatitude(), w.getDisplayLongitude()) <= READBACK_COORD_TOLERANCE_M;
+        return true;
+    }
+
+    /** Field-by-field comparison for the log: match flags and distances only, no names or coordinates. */
+    private static String describeWaypoints(List<Destination> wanted, List<WaypointInfo> read) {
+        StringBuilder out = new StringBuilder("[");
+        for (int i = 0; read != null && i < read.size(); i++) {
+            WaypointInfo w = read.get(i);
+            Destination s = i < wanted.size() ? wanted.get(i) : null;
+            if (i > 0) out.append("; ");
+            if (w == null || s == null) { out.append(w == null ? "null" : "extra"); continue; }
+            out.append("id=").append(Objects.equals(s.id(), w.getPoiId()) ? "same" : (w.getPoiId() == null ? "null" : w.getPoiId().isBlank() ? "blank" : "diff"))
+                .append(" sub=").append(w.getPoiSubId() == null ? "null" : w.getPoiSubId().isBlank() ? "blank" : Objects.equals(s.subId(), w.getPoiSubId()) ? "same" : "diff")
+                .append(" provider=").append(w.getPoiProvider() == null ? "null" : w.getPoiProvider().isBlank() ? "blank" : "set")
+                .append(" name=").append(Objects.equals(s.name(), w.getName()) ? "same" : "diff")
+                .append(" deltaM=").append(Math.round(metersBetween(s.latitude(), s.longitude(), w.getLatitude(), w.getLongitude())))
+                .append(" zero=").append(w.getLatitude() == 0.0 && w.getLongitude() == 0.0)
+                .append(" display=").append(w.getDisplayLatitude() == null || w.getDisplayLongitude() == null ? "null"
+                    : "deltaM" + Math.round(metersBetween(s.latitude(), s.longitude(), w.getDisplayLatitude(), w.getDisplayLongitude())))
+                .append(" remain=").append(w.getRemainDistance()).append("m/").append(w.getRemainTime()).append("s");
+        }
+        return out.append("]").toString();
+    }
+
+    /** Every requested stop must be on the route, and nothing else. Order is not compared. */
+    private static boolean waypointsMatch(List<Destination> wanted, List<WaypointInfo> read) {
+        if (read == null || read.size() != wanted.size()) return false;
+        for (Destination stop : wanted) {
+            boolean found = false;
+            for (WaypointInfo w : read) if (sameWaypoint(stop, w)) found = true;
+            if (!found) return false;
+        }
+        return true;
+    }
+
+    private static String destinationKey(DestinationInfo value) {
+        return value == null ? null : value.getPoiId() + "/" + Objects.requireNonNullElse(value.getPoiSubId(), "");
+    }
+
+    /** Journal format: id|subId|lat|lon per stop, separated by newlines. Names are not needed to verify. */
+    private static String encodeStops(List<Destination> stops) {
+        StringBuilder out = new StringBuilder();
+        for (Destination s : stops) {
+            if (out.length() > 0) out.append('\n');
+            out.append(s.id()).append('|').append(s.subId()).append('|').append(s.latitude()).append('|').append(s.longitude());
+        }
+        return out.toString();
+    }
+
+    private static List<Destination> decodeStops(String value) {
+        if (value == null || value.isBlank()) return List.of();
+        List<Destination> out = new ArrayList<>();
+        for (String line : value.split("\n")) {
+            String[] f = line.split("\\|", -1);
+            out.add(new Destination(f[0], "들를 곳", "", Double.parseDouble(f[2]), Double.parseDouble(f[3]), f[1]));
+        }
+        return out;
     }
 
     @Override public void onDestinationChanged() {
@@ -466,6 +711,8 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
 
     private void routeInterrupted(String event) {
         Log.i(TAG, "route event: " + event + " phase=" + phase + " startSeen=" + routeStartSeen);
+        // Adding a waypoint re-routes the guided trip; the settled readback decides, not this event.
+        if (phase == Phase.STOP_ADDING || phase == Phase.STOP_READBACK || phase == Phase.STOP_PRECHECK) return;
         // The stock navi ends its previous (free-drive) session right after RouteStarted. That is a transition,
         // not a failure; the settled readback decides. An end without a start keeps failing as before.
         if (phase == Phase.ROUTING && routeStartSeen) return;
@@ -507,13 +754,20 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
     private void failSession(String message) {
         if (phase == Phase.CLOSED || poisoned) return;
         boolean beforeDispatch = phase == Phase.PRECHECK;
+        boolean stopBeforeDispatch = phase == Phase.STOP_PRECHECK;
         poisoned = true; connected = false; phase = Phase.IDLE; operation++;
         Callback<Void> connection = connectCallback;
         Callback<List<Destination>> places = placesCallback;
         Callback<Estimate> estimate = estimateCallback;
         Callback<ActiveRoute> query = activeRouteCallback;
         Callback<RouteResult> route = routeCallback;
+        Callback<RouteResult> stop = stopCallback;
         connectCallback = null; placesCallback = null; estimateCallback = null; activeRouteCallback = null; routeCallback = null;
+        stopCallback = null; stopTarget = null;
+        if (stop != null) {
+            if (stopBeforeDispatch) stop.onSuccess(RouteResult.notSent(ActiveRoute.UNAVAILABLE, message));
+            else stop.onFailure(message);
+        }
         releaseHelper();
         if (connection != null) connection.onFailure(message);
         if (places != null) places.onFailure(message);

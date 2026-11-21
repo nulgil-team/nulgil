@@ -14,6 +14,21 @@ public interface NaviGateway extends AutoCloseable {
     /** Recheck route and parking before dispatch. Report a known pre-dispatch refusal via RouteResult.notSent. */
     void start(Destination destination, Preference preference, Callback<RouteResult> callback);
     /**
+     * Same contract as start(destination, preference), with stops visited in order before the destination.
+     * A gateway that cannot send stops must report notSent, never drop them silently.
+     */
+    default void start(Destination destination, List<Destination> stops, Preference preference, Callback<RouteResult> callback) {
+        if (stops.isEmpty()) { start(destination, preference, callback); return; }
+        callback.onSuccess(RouteResult.notSent(ActiveRoute.INACTIVE, "이 연결에서는 들를 곳을 함께 요청할 수 없어요."));
+    }
+    /**
+     * Adds one stop to the route currently being guided. Rechecks guidance, existing stops and parking first and
+     * reports notSent when nothing was sent. Never retries; an unverified result stays unverified.
+     */
+    default void addStop(Destination stop, Callback<RouteResult> callback) {
+        callback.onSuccess(RouteResult.notSent(ActiveRoute.ACTIVE, "이 연결에서는 안내 중 들를 곳을 넣을 수 없어요."));
+    }
+    /**
      * Shows the stock navigation map: the destination before departure, or the whole active route when
      * routeOverview is true. Display only; it never requests, changes or cancels a route.
      */
