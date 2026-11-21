@@ -249,7 +249,7 @@ public final class VehicleScreen {
         }
         // Route preference lives in settings only, matching the navi-style home of the web spec.
         add(body,lead,0);
-        add(body,RouteStrip.build(kit,stripNodes()),32);
+        add(body,RouteStrip.build(kit,stripNodes(),state.traffic()),32);
         actionRow(page,button(state.busy()?"확인 중":"안내 시작",true,state.canConfirm(),()-> {
             confirmDestination=destinationKey(state.destination()); showSheet("confirm");
         }),button("이번엔 넘기기",false,state.canEdit() && !state.busy(),actions::dismiss));

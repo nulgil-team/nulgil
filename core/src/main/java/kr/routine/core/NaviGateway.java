@@ -40,6 +40,8 @@ public interface NaviGateway extends AutoCloseable {
      * Never triggers a navi call by itself.
      */
     default Point currentPosition() { return null; }
+    /** Congestion along the route of the last estimate for this destination; empty when unknown. Never calls the navi. */
+    default java.util.List<TrafficSegment> traffic(Destination destination) { return java.util.List.of(); }
     boolean isDemo();
     boolean isParked();
     void close();

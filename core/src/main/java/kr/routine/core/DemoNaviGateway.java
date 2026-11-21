@@ -77,6 +77,13 @@ public final class DemoNaviGateway implements NaviGateway {
     }
     private boolean ready(Callback<?> callback){if(!connected||closed){callback.onFailure("모의 연결이 준비되지 않았습니다");return false;}return true;}
     @Override public Point currentPosition(){return connected&&!closed?DemoFixtures.ORIGIN_POINT:null;}
+    /** Invented congestion so the 시연 screen shows the traffic bar: heavier on a congested day. */
+    @Override public List<TrafficSegment> traffic(Destination destination){
+        if(destination==null||trafficScenario==TrafficScenario.MISSING) return List.of();
+        return congested ? List.of(new TrafficSegment(0,30,"FAST"),new TrafficSegment(30,45,"MODERATE"),
+                new TrafficSegment(45,70,"HEAVY"),new TrafficSegment(70,85,"SLOW"),new TrafficSegment(85,100,"FAST"))
+            : List.of(new TrafficSegment(0,55,"FAST"),new TrafficSegment(55,65,"MODERATE"),new TrafficSegment(65,100,"FAST"));
+    }
     @Override public boolean isDemo(){return true;}
     @Override public boolean isParked(){return connected&&!closed&&parked;}
     @Override public void close(){closed=true;connected=false;}

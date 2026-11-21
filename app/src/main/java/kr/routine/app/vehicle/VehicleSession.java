@@ -85,7 +85,8 @@ public final class VehicleSession implements AutoCloseable {
             connected && !closed && !working && parked && !collectionBlocked && departure.canAddStop(),
             inviteState(edit && destination != null,
                 connected && !closed && !working && parked && !collectionBlocked && departure.canAddStop(), parked),
-            position(), departure.addedStopList(), phoneState());
+            position(), departure.addedStopList(), phoneState(),
+            valid ? gateway.traffic(destination) : List.of());
     }
 
     // --- 폰에서 경로 보내기 ---

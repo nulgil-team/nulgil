@@ -46,6 +46,17 @@ public final class Model {
         }
     }
     /** A map position. (0, 0) is how the navi reports "unknown", so it is rejected. */
+    /**
+     * Congestion over part of the route, from the stock navi's trip summary: start and end are percent of the route
+     * (0 = here, 100 = destination); level is FAST, MODERATE, SLOW, HEAVY or UNKNOWN.
+     */
+    public record TrafficSegment(int startPercent, int endPercent, String level) {
+        public TrafficSegment {
+            if (startPercent < 0 || endPercent > 100 || endPercent < startPercent) throw new IllegalArgumentException("traffic range");
+            level = level == null ? "UNKNOWN" : level;
+        }
+    }
+
     public record Point(double latitude, double longitude) {
         public Point {
             if (!Double.isFinite(latitude) || !Double.isFinite(longitude) || latitude < -85 || latitude > 85

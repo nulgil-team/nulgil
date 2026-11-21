@@ -27,10 +27,13 @@ public final class RouteStrip {
     private static final int NODE = 96, BAR = 74;
     static final int ORIGIN_FILL = 0xfff3f1ea, STOP_FILL = 0xfff2c12e, DESTINATION_FILL = 0xff1a66c8, MARK = 0xff1b1c1e;
 
-    public static LinearLayout build(UiKit kit, List<Node> nodes) {
+    public static LinearLayout build(UiKit kit, List<Node> nodes) { return build(kit, nodes, List.of()); }
+
+    /** With traffic, the bar between the first and last node is colored like the stock navi's route bar. */
+    public static LinearLayout build(UiKit kit, List<Node> nodes, List<kr.routine.core.Model.TrafficSegment> traffic) {
         LinearLayout box = kit.column();
         FrameLayout track = new FrameLayout(kit.activity);
-        track.addView(new Track(kit.activity, kit.colors), new FrameLayout.LayoutParams(UiKit.MATCH, NODE));
+        track.addView(new Track(kit.activity, kit.colors, traffic), new FrameLayout.LayoutParams(UiKit.MATCH, NODE));
         LinearLayout circles = kit.row(), labels = kit.row();
         for (int i = 0; i < nodes.size(); i++) {
             Node node = nodes.get(i);
@@ -55,6 +58,7 @@ public final class RouteStrip {
         track.addView(circles, new FrameLayout.LayoutParams(UiKit.MATCH, NODE));
         box.addView(track, new LinearLayout.LayoutParams(UiKit.MATCH, NODE));
         kit.add(box, labels, 12);
+        if (!traffic.isEmpty()) kit.add(box, kit.text("선 색은 순정 내비가 알려 준 구간별 교통이에요 · 파랑 원활 · 주황 서행 · 빨강 정체", 26, false, kit.colors.secondary()), 10);
         return box;
     }
 
@@ -65,16 +69,36 @@ public final class RouteStrip {
     private static final class Track extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final VehicleVisuals.Palette colors;
-        Track(Context context, VehicleVisuals.Palette colors) { super(context); this.colors = colors; }
+        private final List<kr.routine.core.Model.TrafficSegment> traffic;
+        Track(Context context, VehicleVisuals.Palette colors, List<kr.routine.core.Model.TrafficSegment> traffic) {
+            super(context); this.colors = colors; this.traffic = traffic;
+        }
         @Override protected void onDraw(Canvas canvas) {
             float w = getWidth(), h = getHeight(), top = (h - BAR) / 2f;
             paint.setStyle(Paint.Style.FILL); paint.setColor(colors.surface());
             canvas.drawRoundRect(new RectF(0, top, w, top + BAR), BAR / 2f, BAR / 2f, paint);
+            float from = NODE / 2f, to = w - NODE / 2f;
+            paint.setStrokeCap(Paint.Cap.BUTT);
+            for (kr.routine.core.Model.TrafficSegment t : traffic) {
+                paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(BAR * 0.34f); paint.setColor(trafficColor(t.level()));
+                canvas.drawLine(from + (to - from) * t.startPercent() / 100f, h / 2f, from + (to - from) * t.endPercent() / 100f, h / 2f, paint);
+            }
             paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(6); paint.setStrokeCap(Paint.Cap.ROUND);
-            paint.setColor(colors.secondary()); paint.setPathEffect(new DashPathEffect(new float[]{34, 26}, 0));
+            paint.setColor(traffic.isEmpty() ? colors.secondary() : 0xccffffff); paint.setPathEffect(new DashPathEffect(new float[]{34, 26}, 0));
             Path line = new Path(); line.moveTo(NODE, h / 2f); line.lineTo(w - NODE, h / 2f); canvas.drawPath(line, paint);
             paint.setPathEffect(null);
         }
+    }
+
+    /** Same colors as the stock navi's route bar. */
+    static int trafficColor(String level) {
+        return switch (level) {
+            case "FAST" -> 0xff3a86ff;
+            case "MODERATE" -> 0xfff5a623;
+            case "SLOW" -> 0xffff7a1a;
+            case "HEAVY" -> 0xffe5484d;
+            default -> 0xff9aa0a6;
+        };
     }
 
     /** Circle with a drawn glyph: arrow (origin), flag (stop), plus (add), pin (destination). */

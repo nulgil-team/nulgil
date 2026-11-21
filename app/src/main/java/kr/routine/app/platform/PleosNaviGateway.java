@@ -53,6 +53,9 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
     private final SharedPreferences journal;
     private final PublicParkedGuard parked;
     private final Map<Destination, PlaceMetadata> knownPlaces = new LinkedHashMap<>();
+    /** Congestion of the last estimate (TripSummary.trafficConditions) and the destination it belongs to. */
+    private List<TrafficSegment> lastTraffic = List.of();
+    private String lastTrafficFor;
     private final Set<Destination> ambiguousPlaces = new HashSet<>();
     private NaviHelper helper;
     private Phase phase = Phase.IDLE;
@@ -395,12 +398,30 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
             String detail = "순정 예상 " + eta + "초 · " + value.getDistance() + "m · 순정 기본 경로 기준 · 교통 " + segments + "구간"
                 + (originKey == null ? " · 출발 위치 미확인(평소 대비 비교 안 함)" : " · 출발 위치 약 1km 격자");
             Log.i(TAG, "estimate: minutes=" + minutes + " basis=" + basis + " origin=" + (originKey == null ? "unknown" : "grid"));
+            lastTraffic = traffic(value); lastTrafficFor = target.id();
             Estimate result = new Estimate(target.id(), originKey == null ? "PLEOS_ORIGIN_UNKNOWN" : originKey, basis, minutes,
                 System.currentTimeMillis(), detail, false);
             Callback<Estimate> callback = estimateCallback;
             estimateCallback = null; phase = Phase.IDLE;
             callback.onSuccess(result);
         }
+    }
+
+    @Override public List<TrafficSegment> traffic(Destination destination) {
+        return destination != null && destination.id().equals(lastTrafficFor) ? lastTraffic : List.of();
+    }
+
+    /** TrafficInfo: congestion type over startRatio..endRatio percent of the route. Bad entries are skipped. */
+    private static List<TrafficSegment> traffic(TripInfo value) {
+        if (value.getSummary() == null || value.getSummary().getTrafficConditions() == null) return List.of();
+        List<TrafficSegment> out = new ArrayList<>();
+        for (ai.pleos.playground.navi.data.TrafficInfo t : value.getSummary().getTrafficConditions()) {
+            try {
+                out.add(new TrafficSegment(Math.max(0, t.getStartRatio()), Math.min(100, t.getEndRatio()),
+                    t.getCongestionType() == null ? "UNKNOWN" : t.getCongestionType().name()));
+            } catch (IllegalArgumentException skipped) { /* out-of-range ratio */ }
+        }
+        return List.copyOf(out);
     }
 
     /** About 1 km grid of the stock navi's current position. Stored only on this device. */
