@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
+import kr.routine.app.vehicle.InviteUiState;
 import kr.routine.app.vehicle.VehicleUiState;
 import kr.routine.core.DepartureController;
 import kr.routine.core.Invite;
@@ -69,6 +70,8 @@ public final class VehicleScreen {
     private String screen="home", sheet, theme="system", pendingScenario, confirmDestination;
     private String onboardId, onboardSubId;
     private Destination pendingStop, pendingPlanned;
+    /** Friend suggestion shown in the "arrived" sheet. */
+    private String pendingArrival;
     private boolean stopPickerLive;
     private int onboardDay=3, onboardMinute=480;
     private boolean building;
@@ -198,6 +201,7 @@ public final class VehicleScreen {
             add(body,button("다시 보기",false,state.canEdit(),actions::recommend),32); return;
         }
         if(state.activeRoute()==ActiveRoute.ACTIVE) {
+            arrivalBanner(body,0);
             heading(body,"이미 안내 중이에요"); description(body,"현재 경로를 유지할게요. 안내 내용은 순정 내비에서 확인해 주세요.");
             stopStatus(body);
             add(body,button("순정 지도에서 경로 전체 보기",true,state.canRefresh()&&!state.demo(),()->actions.showNativeMap(true)),32);
@@ -209,8 +213,9 @@ public final class VehicleScreen {
             heading(body,state.busy()?"현재 경로를 확인하고 있어요":"현재 경로를 확인할 수 없어요");
             description(body,state.message()); refreshButton(body); return;
         }
-        if(state.destination()==null) { empty(body); return; }
+        if(state.destination()==null) { arrivalBanner(body,0); empty(body); return; }
         if(!state.parked()) banner(body,"정차 상태를 확인한 뒤 조작할 수 있어요",true);
+        arrivalBanner(body,0);
         // Screen design "오늘의 경로": reason, destination and time on the left, map on the right, route strip below.
         LinearLayout lead=metrics.compact()?column():row();
         LinearLayout main=column();
@@ -268,6 +273,13 @@ public final class VehicleScreen {
     }
     private void verdict(LinearLayout parent) {
         boolean historyVisible=state.collectionEnabled() && (!state.history().isEmpty() || state.samples()>0);
+        if(state.minutes()!=null && !state.stops().isEmpty()) {
+            // Screen design p7: with stops the navi adds the stop time, so show the direct time as a reference only.
+            add(parent,text("경유지를 추가했어요",metrics.compact()?44:52,true,colors.text()),28);
+            add(parent,text("바로 갈 때 "+state.minutes()+"분이에요. 들르는 시간은 내비에서 확인해요.",34,false,colors.secondary()),8);
+            if(historyVisible) add(parent,button("지난 기록",false,true,()->showSheet("why")),16);
+            return;
+        }
         if(state.minutes()!=null) {
             LinearLayout verdict=metrics.compact()?column():row();
             verdict.setGravity(Gravity.BOTTOM);
@@ -331,6 +343,7 @@ public final class VehicleScreen {
             default -> "unconfirmed";
         };
         body.setTag(phase);
+        if(state.activeRoute()==ActiveRoute.ACTIVE) arrivalBanner(body,0);
         heading(body,switch(phase) {
             case "requesting" -> "안내 반영을 확인하고 있어요";
             case "verified" -> state.demo()?"모의 안내를 확인했어요":"안내 반영을 확인했어요";
@@ -502,6 +515,24 @@ public final class VehicleScreen {
                     String choice=pendingScenario; sheet=null; screen="home"; actions.demoScenario(choice);
                 }),28);
             }
+            case "arrived" -> {
+                InviteUiState.Item item=arrival(pendingArrival);
+                if(item==null) { heading(card,"이미 처리한 경유지예요"); break; }
+                heading(card,item.placeName());
+                description(card,item.sender()+" 님이 보낸 곳이에요 · "+item.address());
+                if(!item.note().isBlank()) description(card,"“"+item.note()+"”");
+                List<MapMath.Marker> markers=new java.util.ArrayList<>(routeMarkers()); markers.add(RouteMapCard.friend(item.stop(),0));
+                View map=RouteMapCard.panel(kit,markers,night,metrics.compact()?320:380,null);
+                add(card,map,20); map.getLayoutParams().height=metrics.compact()?320:380;
+                String mode=state.invite().addMode();
+                Button accept=switch(mode) {
+                    case "NOW" -> button("경유지로 추가",true,true,()->{pendingArrival=null; pendingStop=item.stop(); showSheet("stop");});
+                    case "PLAN" -> button("경유지로 추가",true,true,()->{pendingArrival=null; sheet=null; actions.acceptSuggestion(item.id());});
+                    default -> button("지금은 넣을 수 없어요",true,false,()->{});
+                };
+                if(mode.equals("NONE") && !state.invite().addHint().isBlank()) description(card,state.invite().addHint());
+                add(card,kit.pair(accept,button("넘기기",false,true,()->{pendingArrival=null; sheet=null; actions.dismissSuggestion(item.id());}),2,1),24);
+            }
             case "addStop" -> {
                 heading(card,"경유지를 어디서 고를까요?");
                 description(card,"가는 길에 최대 "+Model.MAX_STOPS+"곳까지 들를 수 있어요. 안내를 시작할 때 목적지와 함께 한 번 요청해요.");
@@ -528,7 +559,31 @@ public final class VehicleScreen {
             }
             default -> description(card,"현재 상태를 다시 확인해 주세요");
         }
-        add(card,button("닫기",false,true,()->{sheet=null;pendingStop=null;pendingPlanned=null;rebuild();}),16);
+        add(card,button("닫기",false,true,()->{sheet=null;pendingStop=null;pendingPlanned=null;pendingArrival=null;rebuild();}),16);
+    }
+    /** Screen design p6: a yellow card when a friend's place has arrived; 보기 opens the add sheet. */
+    private void arrivalBanner(LinearLayout parent,int top) {
+        InviteUiState.Item item=firstArrived();
+        if(item==null) return;
+        LinearLayout bar=row(); bar.setGravity(Gravity.CENTER_VERTICAL); bar.setPadding(28,16,16,16);
+        bar.setBackground(shape(colors.warning(),0,20));
+        LinearLayout words=column();
+        add(words,text("경유지가 도착했어요",36,true,colors.warningText()),0);
+        add(words,text(item.placeName()+" · "+item.sender()+" 님"+(state.invite().waiting()>1?" 외 "+(state.invite().waiting()-1)+"곳":""),30,false,colors.warningText()),2);
+        bar.addView(words,new LinearLayout.LayoutParams(0,WRAP,1));
+        Button look=button("보기",false,true,()->{pendingArrival=item.id(); showSheet("arrived");});
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(metrics.touch(150),WRAP); lp.leftMargin=16; bar.addView(look,lp);
+        add(parent,bar,top);
+    }
+    /** Oldest friend place still waiting for the driver (not yet planned or sent). */
+    private InviteUiState.Item firstArrived() {
+        for(InviteUiState.Item item:state.invite().pending()) if(item.status().equals("PENDING")) return item;
+        return null;
+    }
+    private InviteUiState.Item arrival(String id) {
+        if(id==null) return null;
+        for(InviteUiState.Item item:state.invite().pending()) if(item.id().equals(id)) return item;
+        return null;
     }
     /** Entry to the friend stop screen, with the number of places waiting. Hidden when the build has no invites. */
     private void inviteEntry(LinearLayout parent,int top) {
