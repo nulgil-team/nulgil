@@ -3,6 +3,8 @@ package kr.routine.app.ui;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
 import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.Path;
@@ -20,6 +22,8 @@ public final class RouteMapView extends android.view.View {
     private static final int PADDING = 64;
     /** Minimum distance between pin centres (largest pin is 32 px in radius with its white ring). */
     private static final float PIN_SPACING = 66;
+    /** Night tiles: 45% saturation, 50% brightness, slightly cool, so the light map does not glare in a dark cabin. */
+    private static final float NIGHT_SATURATION = 0.45f, NIGHT_BRIGHTNESS = 0.5f;
     private final MapTileCache cache;
     private final List<MapMath.Marker> markers;
     private final VehicleVisuals.Palette colors;
@@ -36,6 +40,7 @@ public final class RouteMapView extends android.view.View {
         this.colors = colors; this.night = night;
         this.attribution = context.getString(R.string.map_attribution);
         label.setTypeface(Typeface.create(typeface, Typeface.BOLD)); label.setTextAlign(Paint.Align.CENTER);
+        if (night) tilePaint.setColorFilter(nightFilter());
         setContentDescription(describe());
     }
 
@@ -57,7 +62,6 @@ public final class RouteMapView extends android.view.View {
                 canvas.drawBitmap(tile, null, new RectF(left, top, left + MapMath.TILE, top + MapMath.TILE), tilePaint);
             }
         }
-        if (night) canvas.drawColor(0x55000000); // keep light tiles from glaring at night
         drawPath(canvas, view);
         // Pins never hide each other: route pins keep their place, a colliding pin moves aside with a leader line.
         List<MapMath.Marker> ordered = MapMath.priority(markers);
@@ -109,8 +113,17 @@ public final class RouteMapView extends android.view.View {
     private void drawAttribution(Canvas canvas, int w, int h) {
         Paint small = new Paint(Paint.ANTI_ALIAS_FLAG); small.setTextSize(20); small.setTextAlign(Paint.Align.RIGHT);
         float width = small.measureText(attribution);
-        fill.setColor(0xccffffff); canvas.drawRect(w - width - 20, h - 34, w, h, fill);
-        small.setColor(0xff333333); canvas.drawText(attribution, w - 10, h - 10, small);
+        fill.setColor(night ? 0xcc1c1d1f : 0xccffffff); canvas.drawRect(w - width - 20, h - 34, w, h, fill);
+        small.setColor(night ? 0xffb8bcc2 : 0xff333333); canvas.drawText(attribution, w - 10, h - 10, small);
+    }
+
+    private static ColorMatrixColorFilter nightFilter() {
+        ColorMatrix m = new ColorMatrix();
+        m.setSaturation(NIGHT_SATURATION);
+        ColorMatrix dim = new ColorMatrix();
+        dim.setScale(NIGHT_BRIGHTNESS, NIGHT_BRIGHTNESS, NIGHT_BRIGHTNESS * 1.08f, 1f);
+        m.postConcat(dim);
+        return new ColorMatrixColorFilter(m);
     }
 
     private String describe() {
