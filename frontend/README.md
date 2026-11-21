@@ -1,6 +1,6 @@
 # 늘길 화면
 
-타면 이미 오늘의 경로가 돼 있는 차량용 앱의 화면이다. 2026-11-06 기준으로 BR-05, BR-16, BR-17까지 포함한 로컬 API에 연결했다. 원본 디자인 작업은 `D:\00_HYUNDAI_CONTEST\06_APP_DESIGN_20261104`에 보존한다.
+타면 이미 오늘의 경로가 돼 있는 차량용 앱의 화면이다. 2026-11-06 기준으로 BR-05, BR-16, BR-17까지 포함한 로컬 API에 연결했다. 원본 디자인 작업 파일은 이 저장소에 포함하지 않았다.
 
 **실제 차량 앱이 아니다.** 로컬 API는 DEMO다. 교통과 안내 응답은 모의 값이고, 순정 내비·지도·폰·서버 전달은 연결돼 있지 않다.
 
@@ -55,14 +55,14 @@ node frontend\dev-server.mjs
 
 ## 검사
 
-`puppeteer-core`와 Edge가 필요하다.
+`puppeteer-core`와 Edge가 필요하다. 저장소에는 `package.json`이 없으므로 처음 한 번 저장소 루트에서 `npm install --no-save puppeteer-core`를 실행한다. Edge가 없으면 `verify-offline`은 Chrome을 찾고, `verify-live`는 `BROWSER_PATH` 환경 변수로 브라우저 경로를 받는다.
 
 ```powershell
 node frontend\tests\verify-live.cjs <출력 폴더> <시험용 저장 파일>
 node frontend\tests\verify-offline.cjs <출력 폴더> --shots=key
 ```
 
-`verify-live`는 저장 파일을 일부러 변경한다. 반드시 시험용 저장 경로로 띄운 백엔드에서, 새 저장 파일로 실행한다. 최신 결과는 `D:\00_HYUNDAI_CONTEST\03_TEST_RESULTS\20261106_frontend_api_05`이다.
+`verify-live`는 저장 파일을 일부러 변경한다. 반드시 시험용 저장 경로로 띄운 백엔드에서, 새 저장 파일로 실행한다. 아래 표는 2026-11-06 결과이며, 당시 결과 폴더는 저장소에 포함하지 않았다.
 
 | 검사 | 결과 |
 |---|---|
@@ -78,4 +78,8 @@ node frontend\tests\verify-offline.cjs <출력 폴더> --shots=key
 
 ## 문서
 
-`docs/`의 기획, 사용자 흐름, DFD, 백엔드 요청이 현재 기준이다. 저장소 공통 규칙은 `../docs/06_FRONTEND_HANDOFF.md`와 `../docs/05_Git_작업규칙.md`를 따른다.
+- [기획과 사용자 흐름](docs/02_기획과_사용자흐름.md)
+- [DFD와 시스템 구조](docs/03_DFD와_시스템구조.md)
+- 화면과 로컬 API 사이의 계약: [../docs/01_화면연결계약.md](../docs/01_화면연결계약.md)
+
+빌드 환경과 전체 검사 목록은 [저장소 README](../README.md)를 따른다.

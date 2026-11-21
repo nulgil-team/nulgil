@@ -1,4 +1,4 @@
-param([string]$JavaHome = 'C:\Program Files\Java\jdk-22')
+param([string]$JavaHome = $(if ($env:JAVA_HOME) { $env:JAVA_HOME } else { 'C:\Program Files\Java\jdk-22' }))
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $runPath = Join-Path $projectRoot ('evidence\presentation-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))

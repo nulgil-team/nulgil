@@ -1,7 +1,7 @@
 param(
   [int]$Port = 8791,
   [string[]]$Origin = @('http://localhost:5173','http://127.0.0.1:5173'),
-  [string]$JdkPath = 'C:\Program Files\Java\jdk-22',
+  [string]$JdkPath = $(if ($env:JAVA_HOME) { $env:JAVA_HOME } else { 'C:\Program Files\Java\jdk-22' }),
   [string]$DataPath = '',
   [string]$RuntimeRoot = ''
 )

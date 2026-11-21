@@ -1,4 +1,4 @@
-param([string]$JdkPath = 'C:\Program Files\Java\jdk-22')
+param([string]$JdkPath = $(if ($env:JAVA_HOME) { $env:JAVA_HOME } else { 'C:\Program Files\Java\jdk-22' }))
 $ErrorActionPreference = 'Stop'
 $project = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $run = Join-Path $project ('evidence\br02-source-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))

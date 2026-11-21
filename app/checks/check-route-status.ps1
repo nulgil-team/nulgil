@@ -1,6 +1,6 @@
 param(
-    [string]$JdkPath = 'C:\Program Files\Java\jdk-22',
-    [string]$GradleHome = 'D:\00_HYUNDAI_CONTEST\90_TOOLS\gradle_home',
+    [string]$JdkPath = $(if ($env:JAVA_HOME) { $env:JAVA_HOME } else { 'C:\Program Files\Java\jdk-22' }),
+    [string]$GradleHome = $(if ($env:GRADLE_USER_HOME) { $env:GRADLE_USER_HOME } else { Join-Path $HOME '.gradle' }),
     [string]$SdkClasspath = ''
 )
 $ErrorActionPreference = 'Stop'

@@ -82,6 +82,6 @@ tsc --strict --noEmit --module NodeNext --moduleResolution NodeNext --target ES2
 
 검사 로그와 브라우저 캡처는 로컬 작업 복사본의 evidence에 보관했다. 새 저장소와 새 실행 디렉터리로 검사했으며 실제 사용자 저장 기록은 사용하지 않았다.
 
-화면 담당의 08 checkout과 브랜치는 직접 수정하지 않았다. 기준 커밋 `3f2cc4763fcde1dc365b5d9ddd3c68131978a11e`의 런타임 복사본에 연결 변경을 적용해 `verify-live`에서 검사했다. [화면 적용 안내와 패치](integration/README.md)를 제공한다. 날짜별 목록과 후보 화면의 한글·날짜·선택 일수도 캡처에서 확인했다. 이 결과는 Android 기기에서 화면이 실행됐다는 증거가 아니다.
+당시 화면 담당 checkout과 브랜치는 직접 수정하지 않았다. 이전 작업 저장소의 기준 커밋 `3f2cc4763fcde1dc365b5d9ddd3c68131978a11e` 런타임 복사본에 연결 변경을 적용해 `verify-live`에서 검사했다. 당시 화면 적용 안내와 패치는 이 저장소에 없으며, 그 변경은 현재 `frontend/app.js`에 반영되어 있다(`holdType`, `candidates` 사용). 날짜별 목록과 후보 화면의 한글·날짜·선택 일수도 캡처에서 확인했다. 이 결과는 Android 기기에서 화면이 실행됐다는 증거가 아니다.
 
-최종 반영 전에 SSD가 연결 해제됐고 사용자가 현재 재연결할 수 없다고 확인했다. 따라서 D의 07·08 checkout은 갱신하지 않았다. C의 별도 백엔드 checkout에서 기존 비공개 저장소에 변경을 반영한다. Android SDK에 접근할 수 없어 이번 변경의 Android 컴파일은 미검증이다. 공용 Java 코드의 PC 컴파일은 통과했지만 Android 컴파일을 대신하지 않는다. SSD 재연결 후 D의 07 checkout을 최신 커밋으로 갱신하고 unsigned Java 컴파일을 확인해야 한다. 순정 내비·지도·실차·경유지 A/B/C는 이번 검사 범위에 없다.
+작성 당시 Android SDK에 접근할 수 없어 이번 변경의 Android 컴파일은 미검증이다. 공용 Java 코드의 PC 컴파일은 통과했지만 Android 컴파일을 대신하지 않는다. SDK가 있는 환경에서 `gradlew.bat :app:compileDebugJavaWithJavac`로 확인해야 한다. 순정 내비·지도·실차·경유지 A/B/C는 이번 검사 범위에 없다.

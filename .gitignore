@@ -5,6 +5,8 @@ local.properties
 *.log
 runs/
 **/runs/
+evidence/
+dist/
 demo-data/
 **/connection.json
 .env

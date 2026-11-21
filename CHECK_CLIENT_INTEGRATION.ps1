@@ -1,4 +1,4 @@
-param([string]$JdkPath = 'C:\Program Files\Java\jdk-22', [string]$NodePath = 'C:\Program Files\nodejs\node.exe')
+param([string]$JdkPath = $(if ($env:JAVA_HOME) { $env:JAVA_HOME } else { 'C:\Program Files\Java\jdk-22' }), [string]$NodePath = 'C:\Program Files\nodejs\node.exe')
 $ErrorActionPreference = 'Stop'
 $runId = Get-Date -Format 'yyyyMMdd_HHmmss_fff'
 $evidence = Join-Path $PSScriptRoot "evidence\integration_$runId"

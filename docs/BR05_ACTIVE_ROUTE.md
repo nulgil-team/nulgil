@@ -24,7 +24,7 @@
 - `await api.refreshActiveRoute()`는 게이트웨이를 조회하고 전체 상태를 반환한다. `getState()`는 마지막 관측을 읽는다. 둘 다 내비에 경로를 요청하지 않는다.
 - 모의 시나리오는 `api.setDemoScenario({ activeRoute: "ACTIVE" })`로 설정한다. 새 이동에서 활성 또는 조회 불가 상태로 confirm을 직접 호출해도 HTTP 409와 각각 ALREADY_GUIDING, ROUTE_UNAVAILABLE 코드를 받는다.
 - 일반 안내 성공(VERIFIED)과 발행 후 미확인(UNCONFIRMED)은 마지막 요청 결과다. 같은 이동의 재확인은 TRIP_LOCKED로 차단한다. 모의 시연을 다시 시작할 때만 newDemoTrip을 사용한다.
-- `codex/frontend-design`의 `3199362` 웹 시연은 폰에서 미리 보낸 경우의 재조회와 조건부 확인을 모의 연결로 재현한다. BR-02 Android의 현재 진입 경로는 차량 화면의 수동 확인이며, 실제 폰 수신과 자동 요청은 구현 목표다.
+- 이전 작업 저장소의 프런트 브랜치(`3199362`) 웹 시연은 폰에서 미리 보낸 경우의 재조회와 조건부 확인을 모의 연결로 재현한다. BR-02 Android의 현재 진입 경로는 차량 화면의 수동 확인이며, 실제 폰 수신과 자동 요청은 구현 목표다.
 
 ## 실행 결과
 
@@ -39,7 +39,7 @@
 | 순정 SDK 매핑·발행 후 재조회 | 로컬 navi-data 3.0.4의 실제 데이터 객체로 분류 17건·재조회 5건 통과. 약관 미동의, 모의 안내, 빈 응답은 발행 저널을 해제할 근거로 쓰지 않는다. |
 | Android | Android 35·NaviHelper 3.0.5 소스 컴파일 확인. 앱 실행·실차·순정 지도·실제 안내 발행 횟수·경유지 A/B/C는 미검증. |
 
-재현은 `checks/check-core.ps1`, `checks/verify-presentation.ps1`, `BUILD_BACKEND.ps1` 후 `CHECK_BRIDGE.ps1`, `CHECK_CLIENT_INTEGRATION.ps1`을 사용한다. 순정 데이터 분류는 `app/checks/check-route-status.ps1`을 실행한다. 실행·검사는 해당 구성 요소의 최신 로컬 빌드를 우선 선택한다. D 작업본의 dist에는 이전 빌드가 보존되어 있다.
+재현은 `checks/check-core.ps1`, `checks/verify-presentation.ps1`, `BUILD_BACKEND.ps1` 후 `CHECK_BRIDGE.ps1`, `CHECK_CLIENT_INTEGRATION.ps1`을 사용한다. 순정 데이터 분류는 `app/checks/check-route-status.ps1`을 실행한다. 실행·검사는 해당 구성 요소의 최신 로컬 빌드를 우선 선택한다. 이전 빌드를 보관한 `dist/`는 저장소에 포함하지 않았다.
 
 기기에서 확인할 때는 순정 내비 자체의 지도·안내 기준선부터 확인한 뒤, 이미 안내 중인 상태로 늘길을 열어 목적지 유지와 새 요청 0회를 함께 기록한다. 일반 안내 모드와 모의 주행 안내 모드를 모두 활성으로 보호한 것은 늘길의 보수적 분류다. 안내 상태를 읽을 수 없으면 사용자 재조회까지 새 발행을 보류한다. [Pleos 공개 이벤트](https://document.pleos.ai/docs/pleos-only/connect-sdk-pleos/NaviHelper/event-listeners) · [SDK 상태 분류](../app/src/main/java/kr/routine/app/platform/PleosRouteStatus.java)
 

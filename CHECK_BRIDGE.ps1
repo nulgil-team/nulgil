@@ -1,4 +1,4 @@
-param([string]$JdkPath = 'C:\Program Files\Java\jdk-22')
+param([string]$JdkPath = $(if ($env:JAVA_HOME) { $env:JAVA_HOME } else { 'C:\Program Files\Java\jdk-22' }))
 $ErrorActionPreference = 'Stop'
 $outputRoot = Join-Path $PSScriptRoot ('evidence\bridge_' + (Get-Date -Format 'yyyyMMdd_HHmmss_fff'))
 $classes = Join-Path $outputRoot 'classes'
