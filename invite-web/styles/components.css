@@ -59,3 +59,6 @@
 
 .map { height: 220px; border-radius: var(--radius-md); overflow: hidden; background: var(--color-surface-muted); }
 .map-attribution { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: var(--space-1); }
+
+.eta { font-size: var(--font-size-md); margin: 0; }
+.eta strong { font-size: var(--font-size-xl); }
