@@ -20,7 +20,7 @@ public final class QrView extends View {
 
     public QrView(Context context, String content) {
         super(context);
-        setContentDescription("친구용 초대 링크 QR 코드");
+        setContentDescription("폰으로 초대 링크를 옮기는 QR 코드");
         try {
             matrix = new QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, 0, 0,
                 Map.of(EncodeHintType.MARGIN, 2, EncodeHintType.ERROR_CORRECTION, ErrorCorrectionLevel.M,

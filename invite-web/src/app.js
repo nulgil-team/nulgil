@@ -15,7 +15,10 @@ const storage = {
 const state = {
   screen: "loading", code: "", sender: storage.get("nulgil.sender") ?? "", query: "", results: [],
   place: null, note: "", sentId: null, sentAt: 0, status: null, error: "", busy: false,
+  link: "", canShare: typeof navigator.share === "function", copied: false,
 };
+// The car's QR adds share=1: the phone that scans it is in the car and forwards the link to the friend.
+const shareMode = new URLSearchParams(location.search).get("share") === "1";
 let pollTimer = null;
 let checking = false;
 
@@ -39,6 +42,8 @@ async function openCode(code) {
   try {
     const trip = await api.getTrip(normalized);
     if (!trip.open) { go("closed", { message: "이 초대는 끝났거나 시간이 지났어요." }); return; }
+    const link = `${location.origin}${location.pathname}?c=${normalized}`;
+    if (shareMode) { go("share", { link, copied: false }); return; }
     history.replaceState(null, "", `?c=${normalized}`);
     go("compose");
   } catch (e) { go("enterCode", { code: normalized, error: e.message }); }
@@ -103,8 +108,21 @@ root.addEventListener("click", (event) => {
   else if (action === "choose") { readFields(); go("confirm", { place: state.results[Number(target.dataset.index)], note: "" }); }
   else if (action === "back") { readFields(); go("compose"); }
   else if (action === "send") send();
+  else if (action === "share-link") shareLink();
+  else if (action === "copy-link") copyLink();
+  else if (action === "self") { history.replaceState(null, "", `?c=${state.code}`); go("compose"); }
   else if (action === "again") { clearTimeout(pollTimer); go("compose", { query: "", results: [], place: null, sentId: null, status: null }); }
 });
+
+async function shareLink() {
+  try { await navigator.share({ title: "늘길 · 들를 곳", text: "가는 길에 들를 곳을 보내 주세요", url: state.link }); }
+  catch { /* the person closed the share sheet */ }
+}
+
+async function copyLink() {
+  try { await navigator.clipboard.writeText(state.link); go("share", { copied: true }); }
+  catch { root.querySelector("[data-share-link]")?.select(); /* no clipboard access: leave the link selected */ }
+}
 
 root.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;

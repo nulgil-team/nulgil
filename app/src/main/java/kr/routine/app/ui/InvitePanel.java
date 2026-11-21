@@ -65,6 +65,9 @@ public final class InvitePanel {
             invite.canOpen(), actions::openInvite), 32);
     }
 
+    /** The QR opens the friend page's share screen (send the link on), not the friend's own send form. */
+    static String shareUrl(String inviteUrl) { return inviteUrl + (inviteUrl.contains("?") ? "&" : "?") + "share=1"; }
+
     private void code(LinearLayout body, InviteUiState invite, ZoneId zone) {
         LinearLayout box = kit.card();
         LinearLayout info = kit.column();
@@ -72,11 +75,12 @@ public final class InvitePanel {
         TextView code = kit.text(spaced(invite.code()), kit.metrics.compact() ? 84 : 120, true, kit.colors.text());
         code.setContentDescription("초대 코드 " + spaced(invite.code()));
         kit.add(info, code, 4);
+        // The friend is not in the car: the QR moves the link to a phone in the car, which forwards it in a messenger.
         kit.add(info, kit.text(invite.url().isEmpty() ? "친구에게 이 코드를 알려 주세요."
-            : "친구가 QR을 찍거나 아래 주소에서 코드를 넣으면 돼요.", 34, false, kit.colors.secondary()), 8);
+            : "폰 카메라로 QR을 찍어 친구에게 링크를 보내 주세요. 친구는 링크에서 들를 곳을 골라요.", 34, false, kit.colors.secondary()), 8);
         if (!invite.url().isEmpty()) kit.add(info, kit.text(invite.url(), 30, false, kit.colors.secondary()), 8);
         kit.add(info, kit.text(until(invite.expiresAt(), zone) + "까지 받을 수 있어요", 30, false, kit.colors.secondary()), 8);
-        QrView qr = invite.url().isEmpty() ? null : new QrView(kit.activity, invite.url());
+        QrView qr = invite.url().isEmpty() ? null : new QrView(kit.activity, shareUrl(invite.url()));
         if (qr != null && qr.valid()) {
             int size = kit.metrics.compact() ? 320 : 360;
             LinearLayout line = kit.metrics.compact() ? kit.column() : kit.row();

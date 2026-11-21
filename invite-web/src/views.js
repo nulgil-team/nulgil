@@ -29,6 +29,18 @@ export function enterCode({ code, error: message }) {
   </section>`;
 }
 
+// Opened from the car's QR on a phone in the car: pass the link on to the friend.
+export function share({ code, link, canShare, copied }) {
+  return `${header("친구에게 링크를 보내 주세요", "친구가 이 링크를 열면 가는 길에 들를 곳을 골라 차로 보낼 수 있어요.")}
+  <section class="card stack">
+    <p class="muted">초대 코드 <strong>${esc(code)}</strong></p>
+    <input class="field-input" data-share-link readonly value="${esc(link)}" aria-label="초대 링크">
+    ${canShare ? `<button class="btn btn-primary btn-block" data-action="share-link">친구에게 보내기</button>` : ""}
+    <button class="btn btn-block ${canShare ? "" : "btn-primary"}" data-action="copy-link">${copied ? "복사했어요" : "링크 복사"}</button>
+  </section>
+  <p class="footer-note"><button class="btn btn-block" data-action="self">내가 직접 들를 곳 보내기</button></p>`;
+}
+
 export function closed({ message }) {
   return `${header("지금은 보낼 수 없어요", message)}
   <section class="card"><p class="muted">운전자에게 새 초대를 부탁해 주세요.</p></section>`;
