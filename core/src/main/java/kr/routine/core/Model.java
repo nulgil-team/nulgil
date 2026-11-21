@@ -14,6 +14,11 @@ public final class Model {
     public enum StopState { NONE, REQUESTING, ADDED, NOT_SENT, UNCONFIRMED }
 
     /** Same POI: id and subId. Coordinates may be snapped by the navi, so they are not part of identity. */
+    /** A place that is not a stock POI (a friend's stop or a place sent from the phone): sent as coordinates and a name. */
+    public static boolean external(Destination d) {
+        return d != null && (d.id().startsWith("invite:") || d.id().startsWith(PhoneLink.PREFIX));
+    }
+
     public static boolean samePlace(Destination a, Destination b) {
         return a != null && b != null && a.id().equals(b.id()) && a.subId().equals(b.subId());
     }

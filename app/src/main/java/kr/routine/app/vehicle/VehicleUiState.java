@@ -16,9 +16,10 @@ public record VehicleUiState(
     boolean canEdit, boolean canConfirm, boolean canRefresh, boolean canSwitchMode,
     String message, String notice, long now, ZoneId zone, int navigationRequests, List<Rule> rules,
     List<Destination> stops, int addedStops, String stopState, String stopMessage, boolean canPlanStops, boolean canAddStop,
-    InviteUiState invite, Point position, List<Destination> addedStopList) {
+    InviteUiState invite, Point position, List<Destination> addedStopList, PhoneUiState phone) {
     public VehicleUiState {
         invite = invite == null ? InviteUiState.unavailable() : invite;
+        phone = phone == null ? PhoneUiState.unavailable() : phone;
         stops = List.copyOf(stops);
         addedStopList = addedStopList == null ? List.of() : List.copyOf(addedStopList);
         destinations = List.copyOf(destinations);

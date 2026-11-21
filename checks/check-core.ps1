@@ -11,6 +11,7 @@ $javaFiles += Join-Path $PSScriptRoot 'ActiveRouteChecks.java'
 $javaFiles += Join-Path $PSScriptRoot 'HistoryCoreChecks.java'
 $javaFiles += Join-Path $PSScriptRoot 'StopChecks.java'
 $javaFiles += Join-Path $PSScriptRoot 'InviteChecks.java'
+$javaFiles += Join-Path $PSScriptRoot 'PhoneChecks.java'
 & (Join-Path $JdkPath 'bin\javac.exe') -J-Xmx128m --release 17 -encoding UTF-8 -d $classRoot $javaFiles
 if ($LASTEXITCODE -ne 0) { throw 'Core compilation failed.' }
 & (Join-Path $JdkPath 'bin\java.exe') -Xmx128m -cp $classRoot CoreChecks (Join-Path $runRoot 'data') 2>&1 | Tee-Object -FilePath (Join-Path $runRoot 'checks.log')
@@ -25,5 +26,7 @@ if ($LASTEXITCODE -ne 0) { $checkExit = $LASTEXITCODE }
 & (Join-Path $JdkPath 'bin\java.exe') -Xmx128m -cp $classRoot StopChecks (Join-Path $runRoot 'stop-data') 2>&1 | Tee-Object -FilePath (Join-Path $runRoot 'stop-checks.log')
 if ($LASTEXITCODE -ne 0) { $checkExit = $LASTEXITCODE }
 & (Join-Path $JdkPath 'bin\java.exe') -Xmx128m -cp $classRoot InviteChecks (Join-Path $runRoot 'invite-data') 2>&1 | Tee-Object -FilePath (Join-Path $runRoot 'invite-checks.log')
+if ($LASTEXITCODE -ne 0) { $checkExit = $LASTEXITCODE }
+& (Join-Path $JdkPath 'bin\java.exe') -Xmx128m -cp $classRoot PhoneChecks 2>&1 | Tee-Object -FilePath (Join-Path $runRoot 'phone-checks.log')
 if ($LASTEXITCODE -ne 0) { $checkExit = $LASTEXITCODE }
 exit $checkExit

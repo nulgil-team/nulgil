@@ -33,7 +33,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import kr.routine.core.Invite;
 import kr.routine.core.Model;
 import kr.routine.core.Model.*;
 import kr.routine.core.NaviGateway;
@@ -171,7 +170,7 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
     @Override public void estimate(Destination destination, long now, Callback<Estimate> callback) {
         requireMain();
         if (!ready(callback)) return;
-        if (!knownPlaces.containsKey(destination)) {
+        if (!knownPlaces.containsKey(destination) && !Model.external(destination)) {
             callback.onFailure("순정 최근 목적지·즐겨찾기에서 현재 확인한 장소를 선택하세요."); return;
         }
         estimateCallback = callback;
@@ -183,8 +182,10 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
             helper.getCurrentLocationInfo();
             // Static SDK constructor inspection: latitude, longitude, poiId, poiName, poiSubId.
             // TripRequest.poiSubId is nullable in navi-data 3.0.4; send null for a POI without a sub-entrance.
+            // A place sent from the phone has no stock POI: coordinates and name only, like a friend's stop.
+            boolean external = Model.external(destination);
             helper.requestTrip(new TripRequest(destination.latitude(), destination.longitude(),
-                destination.id(), destination.name(), destination.subId().isEmpty() ? null : destination.subId()));
+                external ? "" : destination.id(), destination.name(), external || destination.subId().isEmpty() ? null : destination.subId()));
         } catch (RuntimeException ex) { failSession("교통 정보 요청 실패: " + ex.getClass().getSimpleName()); }
     }
 
@@ -219,7 +220,7 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
         if (routeIssued) {
             callback.onSuccess(RouteResult.notSent(ActiveRoute.UNAVAILABLE, "이 연결의 이전 안내 요청 상태를 확인하세요.")); return;
         }
-        if (destination == null || option == null || !knownPlaces.containsKey(destination)) {
+        if (destination == null || option == null || (!knownPlaces.containsKey(destination) && !Model.external(destination))) {
             callback.onSuccess(RouteResult.notSent(ActiveRoute.UNAVAILABLE, "현재 순정에서 확인한 장소와 경로 옵션이 필요합니다.")); return;
         }
         target = destination; preference = option; routeCallback = callback; routeStops = checkedStops;
@@ -236,7 +237,7 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
             return;
         }
         if (!parked.isParked()) { finishWithoutRequest(status, parked.reason()); return; }
-        PlaceMetadata metadata = knownPlaces.get(target);
+        PlaceMetadata metadata = Model.external(target) ? EXTERNAL_PLACE : knownPlaces.get(target);
         if (metadata == null) { finishWithoutRequest(status, "장소 정보가 바뀌었습니다. 목적지를 다시 선택하세요."); return; }
         RouteInfo request;
         List<RequestWaypointInfo> waypoints = new ArrayList<>();
@@ -247,9 +248,10 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
                 return;
             }
             // Build the complete SDK request before recording a possible dispatch.
+            boolean externalTarget = Model.external(target);
             request = new RouteInfo(target.latitude(), target.longitude(), metadata.displayLatitude(),
-                metadata.displayLongitude(), target.name(), target.id(), target.address(), target.subId(),
-                RouteOption.valueOf(preference.name()), metadata.provider(), false);
+                metadata.displayLongitude(), target.name(), externalTarget ? "" : target.id(), target.address(),
+                externalTarget ? "" : target.subId(), RouteOption.valueOf(preference.name()), metadata.provider(), false);
             for (int i = 0; i < routeStops.size(); i++) {
                 Destination stop = routeStops.get(i);
                 PlaceMetadata stopMetadata = stopMetadata(stop);
@@ -530,15 +532,12 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
         // Destination identity decides the result. Pleos Connect 2.1.0 ignores RouteInfo.routeOption and guides with
         // its own setting (measured 2026-11-21), so an option mismatch is fixed once via changeRouteOption, not failed.
         boolean matches = target != null && PleosRouteStatus.confirmsNativeGuidance(readState)
-            && Objects.equals(target.id(), readDestination.getPoiId())
-            && Objects.equals(target.subId(), Objects.requireNonNullElse(readDestination.getPoiSubId(), ""))
-            && metersBetween(target.latitude(), target.longitude(), readDestination.getLatitude(), readDestination.getLongitude())
-                <= READBACK_COORD_TOLERANCE_M
-            && stopsMatch;
+            && sameDestination(target, readDestination) && stopsMatch;
         if (waypointsNeeded) Log.i(TAG, "readback stops: wanted=" + routeStops.size() + " read=" + readWaypoints.size() + " match=" + stopsMatch
             + " " + describeWaypoints(routeStops, readWaypoints));
         Log.i(TAG, "readback: phase=" + phase + " mode=" + readState.getNaviMode() + " routing=" + readState.isRouting()
             + " terms=" + readState.getTermsAgreement() + " option=" + readState.getRouteOption() + " wanted=" + preference
+            + " external=" + (target != null && Model.external(target)) + " nameMatch=" + (target != null && target.name().equals(readDestination.getName()))
             + " idMatch=" + (target != null && Objects.equals(target.id(), readDestination.getPoiId()))
             + " subIdMatch=" + (target != null && Objects.equals(target.subId(), Objects.requireNonNullElse(readDestination.getPoiSubId(), "")))
             + " coordDeltaM=" + (target == null ? "na" : Math.round(metersBetween(target.latitude(), target.longitude(),
@@ -692,14 +691,26 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
         if (callback != null) callback.onSuccess(result);
     }
 
+    /** Stock places match by POI id, sub id and position; an external place (from the phone) by position or name. */
+    private static boolean sameDestination(Destination target, DestinationInfo read) {
+        if (Model.external(target)) {
+            if (read.getLatitude() != 0.0 || read.getLongitude() != 0.0)
+                return metersBetween(target.latitude(), target.longitude(), read.getLatitude(), read.getLongitude()) <= READBACK_COORD_TOLERANCE_M;
+            return read.getName() != null && read.getName().trim().equals(target.name().trim());
+        }
+        return Objects.equals(target.id(), read.getPoiId())
+            && Objects.equals(target.subId(), Objects.requireNonNullElse(read.getPoiSubId(), ""))
+            && metersBetween(target.latitude(), target.longitude(), read.getLatitude(), read.getLongitude()) <= READBACK_COORD_TOLERANCE_M;
+    }
+
     private PlaceMetadata stopMetadata(Destination stop) {
         if (stop == null) return null;
-        return Invite.isInviteStop(stop) ? EXTERNAL_PLACE : knownPlaces.get(stop);
+        return Model.external(stop) ? EXTERNAL_PLACE : knownPlaces.get(stop);
     }
 
     private static RequestWaypointInfo waypointRequest(Destination stop, PlaceMetadata metadata, WaypointIndex index) {
         // Constructor order from navi-data 3.0.4: latitude, longitude, poiName, index, poiId, address, poiSubId, poiProvider.
-        boolean external = Invite.isInviteStop(stop);
+        boolean external = Model.external(stop);
         return new RequestWaypointInfo(stop.latitude(), stop.longitude(), stop.name(), index, external ? "" : stop.id(),
             stop.address(), external ? "" : stop.subId(), metadata.provider() == null ? "" : metadata.provider());
     }
@@ -723,7 +734,7 @@ public final class PleosNaviGateway implements NaviGateway, NaviHelperEventListe
      * applies only when the navi actually reports a position.
      */
     private static boolean sameWaypoint(Destination stop, WaypointInfo w) {
-        if (stop != null && w != null && Invite.isInviteStop(stop)) return sameExternalWaypoint(stop, w);
+        if (stop != null && w != null && Model.external(stop)) return sameExternalWaypoint(stop, w);
         if (stop == null || w == null || !Objects.equals(stop.id(), w.getPoiId())
             || !Objects.equals(stop.subId(), Objects.requireNonNullElse(w.getPoiSubId(), ""))) return false;
         if (w.getLatitude() != 0.0 || w.getLongitude() != 0.0)

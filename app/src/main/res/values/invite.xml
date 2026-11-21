@@ -7,4 +7,6 @@
     <string name="invite_api_key" translatable="false">sb_publishable_oc1KkjeSa4J5A_rYWY9s_g_sQZA9kF-</string>
     <!-- Friend page address (invite-web). Empty: the car shows the code only, without a QR code. -->
     <string name="invite_web_url" translatable="false">https://nulgil-invite.vercel.app/</string>
+    <!-- Driver's phone page (invite-web/phone.html) for 폰에서 경로 보내기. Empty: the car offers no phone link. -->
+    <string name="phone_web_url" translatable="false">https://nulgil-invite.vercel.app/phone.html</string>
 </resources>

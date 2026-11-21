@@ -29,13 +29,23 @@ public final class VehicleSession implements AutoCloseable {
     private long sequence, demoNow = DemoFixtures.NOW;
     /** Friend suggestions; null when this build has no invite service. */
     private final InviteInbox invites;
+    /** 폰에서 경로 보내기; null in 시연 mode or without a phone page. */
+    private final PhoneInbox phone;
+    /** The place the phone sent, until the driver starts, skips or replaces it. */
+    private PhoneLink.Route phoneRoute;
+    private boolean phoneApplied;
 
     public VehicleSession(NaviGateway gateway, RoutineStore store, boolean demo, Clock clock, ZoneId zone) {
         this(gateway, store, demo, clock, zone, null);
     }
 
     public VehicleSession(NaviGateway gateway, RoutineStore store, boolean demo, Clock clock, ZoneId zone, InviteInbox invites) {
-        this.invites = invites;
+        this(gateway, store, demo, clock, zone, invites, null);
+    }
+
+    public VehicleSession(NaviGateway gateway, RoutineStore store, boolean demo, Clock clock, ZoneId zone, InviteInbox invites,
+                          PhoneInbox phone) {
+        this.invites = invites; this.phone = phone;
         this.gateway = Objects.requireNonNull(gateway); this.store = Objects.requireNonNull(store);
         this.demo = demo; this.clock = Objects.requireNonNull(clock); this.zone = Objects.requireNonNull(zone);
         if (gateway.isDemo() != demo) throw new IllegalArgumentException("gateway mode mismatch");
@@ -75,7 +85,33 @@ public final class VehicleSession implements AutoCloseable {
             connected && !closed && !working && parked && !collectionBlocked && departure.canAddStop(),
             inviteState(edit && destination != null,
                 connected && !closed && !working && parked && !collectionBlocked && departure.canAddStop(), parked),
-            position(), departure.addedStopList());
+            position(), departure.addedStopList(), phoneState());
+    }
+
+    // --- 폰에서 경로 보내기 ---
+
+    private PhoneUiState phoneState() {
+        if (phone == null) return PhoneUiState.unavailable();
+        return new PhoneUiState(true, phone.linked(), phone.pairing(), phone.pairUrl(), phone.message(),
+            phoneRoute == null ? "" : phoneRoute.name());
+    }
+
+    public void pairPhone() { if (phone != null && !closed) phone.pair(this::emit); }
+    public void finishPhonePairing() { if (phone != null) phone.finishPairing(this::emit); }
+    public void unpairPhone() { if (phone != null && !closed) phone.unpair(this::emit); }
+
+    /** A place arrived from the phone: it becomes today's route as soon as the car may change the plan. */
+    private void receivePhoneRoute(PhoneLink.Route route) {
+        phoneRoute = route; phoneApplied = false;
+        applyPhoneRoute();
+        emit();
+    }
+
+    private void applyPhoneRoute() {
+        if (phoneRoute == null || phoneApplied || !snapshot().canEdit()) return;
+        phoneApplied = true;
+        Destination sent = phoneRoute.toDestination();
+        propose(sent, "PHONE", new Recommendation(sent, "오늘 폰에서 보낸 목적지예요.", 0));
     }
 
     private Point position() {
@@ -222,6 +258,7 @@ public final class VehicleSession implements AutoCloseable {
         if (!connected) { started = false; connect(); return; }
         pendingForeground = false; busy = true; status = "현재 안내 상태를 확인하고 있어요";
         if (invites != null) invites.poll(clock.millis(), true, this::emit);
+        if (phone != null) phone.poll(clock.millis(), true, this::receivePhoneRoute, this::emit);
         long request = ++sequence;
         departure.refreshActiveRoute(() -> {
             if (!current(request)) return;
@@ -253,6 +290,8 @@ public final class VehicleSession implements AutoCloseable {
     public void tick() {
         if (closed) return;
         if (invites != null) invites.poll(clock.millis(), false, this::emit);
+        if (phone != null) phone.poll(clock.millis(), false, this::receivePhoneRoute, this::emit);
+        if (phoneRoute != null && !phoneApplied) applyPhoneRoute();
         boolean parked = parked(), fresh = validEstimate();
         if (parked != lastParked || fresh != lastFresh) { lastParked = parked; lastFresh = fresh; emit(); }
         drainForeground();
@@ -349,7 +388,7 @@ public final class VehicleSession implements AutoCloseable {
             if (!current(request)) return;
             if (!persisted[0] && departure.state() == DepartureController.State.VERIFIED) {
                 persisted[0] = true;
-                if (collecting() && validEstimate(submitted, now())) save(() -> store.recordEstimate(submitted));
+                if (collecting() && validEstimate(submitted, now()) && !Model.external(destination)) save(() -> store.recordEstimate(submitted));
             }
             emit(); drainForeground();
         });
@@ -456,6 +495,10 @@ public final class VehicleSession implements AutoCloseable {
     }
     private Destination resolve(Destination value) {
         if (value == null) return null;
+        if (PhoneLink.isPhoneDestination(value)) {
+            Destination sent = phoneRoute == null ? null : phoneRoute.toDestination();
+            return sent != null && sent.equals(value) ? sent : null;
+        }
         if (Invite.isInviteStop(value)) {
             // A friend's place is resolved from the inbox, and only while it still waits for the driver.
             Invite.Suggestion s = invites == null ? null : invites.find(Invite.suggestionId(value));

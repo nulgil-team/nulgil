@@ -163,8 +163,11 @@ public final class DepartureController {
                     state = State.VERIFIED;
                     message = result.message();
                     sentStops = submittedStops;
-                    try { store.recordSelection(new Selection(submitted, day, minute, now)); }
-                    catch (IOException error) { message += " 선택 기록은 저장하지 못했습니다."; }
+                    // A place sent from the phone is a one-off: it is not learned as a routine destination.
+                    if (!Model.external(submitted)) {
+                        try { store.recordSelection(new Selection(submitted, day, minute, now)); }
+                        catch (IOException error) { message += " 선택 기록은 저장하지 못했습니다."; }
+                    }
                 }
                 changed.run();
             }

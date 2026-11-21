@@ -51,6 +51,10 @@ public final class VehicleScreen {
         void demoScenario(String key);
         void switchMode();
         void setTheme(String key);
+        /** 폰에서 경로 보내기: link a phone (shows a QR once), hide the QR, forget the phone. */
+        void pairPhone();
+        void finishPhonePairing();
+        void unpairPhone();
     }
     private static final int MATCH=ViewGroup.LayoutParams.MATCH_PARENT, WRAP=ViewGroup.LayoutParams.WRAP_CONTENT;
     private static final String[] DAYS={"월","화","수","목","금","토","일"};
@@ -119,7 +123,7 @@ public final class VehicleScreen {
     public void restoreState(Bundle saved) {
         if(saved==null) return;
         String candidate=saved.getString("screen","home");
-        screen=List.of("home","picker","guide","settings","onboard1","onboard2","onboard3","stops","invite").contains(candidate)?candidate:"home";
+        screen=List.of("home","picker","guide","settings","onboard1","onboard2","onboard3","stops","invite","phone").contains(candidate)?candidate:"home";
         String savedTheme=saved.getString("theme","system");
         theme=List.of("system","day","night").contains(savedTheme)?savedTheme:"system";
         onboardId=saved.getString("onboardId"); onboardSubId=saved.getString("onboardSubId");
@@ -160,6 +164,7 @@ public final class VehicleScreen {
                 case "picker" -> picker(body,false);
                 case "stops" -> stopPicker(body);
                 case "settings" -> settings(body);
+                case "phone" -> phoneScreen(body);
                 case "invite" -> new InvitePanel(kit,actions,stop->{pendingStop=stop; showSheet("stop");}).render(body,state.invite(),state.parked(),state.zone(),routeMarkers(),night);
                 case "onboard1" -> onboardConsent(body);
                 case "onboard2" -> picker(body,true);
@@ -216,6 +221,13 @@ public final class VehicleScreen {
         if(state.destination()==null) { arrivalBanner(body,0); empty(body); return; }
         if(!state.parked()) banner(body,"정차 상태를 확인한 뒤 조작할 수 있어요",true);
         arrivalBanner(body,0);
+        if(state.source().equals("PHONE")) {
+            // Screen design p11: the route the driver sent from the phone, ready to start.
+            LinearLayout sent=column(); sent.setPadding(28,18,28,18); sent.setBackground(shape(colors.surface(),0,20));
+            add(sent,text("폰에서 보낸 경로예요",36,true,colors.text()),0);
+            add(sent,text("안내 시작만 누르면 돼요",30,false,colors.secondary()),2);
+            add(body,sent,firstArrived()==null?0:14);
+        }
         // Screen design "오늘의 경로": reason, destination and time on the left, map on the right, route strip below.
         LinearLayout lead=metrics.compact()?column():row();
         LinearLayout main=column();
@@ -227,7 +239,7 @@ public final class VehicleScreen {
         LinearLayout.LayoutParams changeParams=new LinearLayout.LayoutParams(metrics.touch(170),WRAP); changeParams.leftMargin=22;
         destinationLine.addView(change,changeParams); add(main,destinationLine,6);
         verdict(main);
-        Runnable stockMap=state.canRefresh()&&!state.demo()?()->actions.showNativeMap(false):null;
+        Runnable stockMap=state.canRefresh()&&!state.demo()&&!Model.external(state.destination())?()->actions.showNativeMap(false):null;
         View map=RouteMapCard.panel(kit,routeMarkers(),night,metrics.compact()?360:420,stockMap);
         map.setContentDescription(map.getContentDescription()+(stockMap==null?"":", 누르면 순정 지도에서 봐요"));
         if(metrics.compact()) { add(lead,main,0); add(lead,map,20); }
@@ -400,6 +412,28 @@ public final class VehicleScreen {
         }
         add(body,layout,state.activeRoute()==ActiveRoute.ACTIVE && firstArrived()!=null?20:0);
     }
+    /** 폰 연결: a QR the driver's phone scans once; afterwards the phone can send today's destination. */
+    private void phoneScreen(LinearLayout body) {
+        heading(body,"폰에서 미리 경로 보내기");
+        description(body,"내려오면서 폰으로 목적지를 보내 두면, 차에 타서 안내 시작만 누르면 돼요. 서버에는 폰이 보낸 장소만 잠시 저장하고, 차의 위치·경로는 보내지 않아요.");
+        if(!state.phone().message().isBlank()) banner(body,state.phone().message(),true);
+        String url=state.phone().pairUrl();
+        if(!url.isEmpty()) {
+            LinearLayout box=column(); box.setPadding(32,32,32,32); box.setBackground(shape(colors.surface(),0,26)); box.setGravity(Gravity.CENTER_HORIZONTAL);
+            add(box,text("폰 카메라로 이 QR을 찍어 주세요",40,true,colors.text()),0);
+            QrView qr=new QrView(activity,url); qr.setContentDescription("폰 연결 QR 코드");
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(400,400); lp.topMargin=20; lp.gravity=Gravity.CENTER_HORIZONTAL; box.addView(qr,lp);
+            add(box,text("연결은 이 폰에 저장돼요. 이 QR은 지금 한 번만 보여요.",30,false,colors.secondary()),16);
+            add(body,box,24);
+            add(body,button("연결했어요",true,true,()->{actions.finishPhonePairing(); navigate("settings");}),20);
+        } else if(state.phone().linked()) {
+            banner(body,"이 차에 폰이 연결돼 있어요. 폰에서 늘길 페이지를 열어 목적지를 보내세요.",false);
+            if(!state.phone().waitingName().isBlank()) description(body,"받은 목적지: "+state.phone().waitingName());
+            add(body,button("연결 끊기",false,true,actions::unpairPhone),24);
+        } else {
+            add(body,button(state.phone().pairing()?"연결 QR을 만드는 중":"폰 연결하기",true,!state.phone().pairing(),actions::pairPhone),24);
+        }
+    }
     /** A place in the guide card's list, with the same circle as the home route strip. */
     private void placeLine(LinearLayout parent,RouteStrip.Kind kind,String label) {
         LinearLayout line=row(); line.setGravity(Gravity.CENTER_VERTICAL);
@@ -431,6 +465,8 @@ public final class VehicleScreen {
             saved.setPadding(24,18,24,18); saved.setBackground(shape(colors.surface(),0,20)); add(body,saved,14);
         }
         add(body,button("평소 장소 등록",false,state.canEdit(),()->navigate("onboard1")),24);
+        if(state.phone().available())
+            add(body,button(state.phone().linked()?"폰 연결됨 · 관리":"폰 연결 · 폰에서 미리 경로 보내기",false,true,()->navigate("phone")),14);
         add(body,text("경로 선택",40,true,colors.text()),32);
         preferences(body);
         add(body,button("교통·안내 상태 다시 확인",false,state.canRefresh(),actions::refresh),14);
